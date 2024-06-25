@@ -15,6 +15,7 @@ import ccc.oci
 import ci.log
 import ci.util
 
+import ai_assistant.ai_assistant_lg
 import artefacts
 import compliance_tests
 import compliance_summary as cs
@@ -542,6 +543,15 @@ def init_app(
             component_version_lookup=version_lookup,
             github_api_lookup=github_api_lookup,
         ),
+    )
+    app.add_route(
+        '/ai-assistant/chat',
+        ai_assistant.ai_assistant_lg.AiAssistantChatLG(
+            component_descriptor_lookup=component_descriptor_lookup,
+            component_version_lookup=version_lookup,
+            github_api_lookup=github_api_lookup,
+            invalid_semver_ok=invalid_semver_ok,
+        )
     )
 
     app.resp_options.media_handlers[falcon.MEDIA_JSON] = falcon.media.JSONHandler(
