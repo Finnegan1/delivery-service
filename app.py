@@ -3,9 +3,11 @@ import argparse
 import functools
 import json
 import logging
-import os
-import traceback
 import multiprocessing
+import os
+import platform
+import sys
+import traceback
 
 import falcon
 import falcon.media
@@ -75,7 +77,13 @@ def parse_args():
         help='specify kubernetes cluster namespace to interact with extensions (and logs)',
     )
 
-    return parser.parse_args()
+    args = sys.argv
+    if args[0].endswith('pytest'):
+        # remove arguments passed to "pytest" from delivery-service arguments
+        args = []
+    else:
+        args = args[1:]
+    return parser.parse_args(args)
 
 
 def init(parsed_arguments):
@@ -269,14 +277,6 @@ def init_app(
         suffix='query',
     )
 
-    app.add_route( # TODO: remove after clients have been switched to /artefacts/metadata
-        '/artefacts/upload-metadata',
-        metadata.ArtefactMetadata(
-            eol_client=eol_client,
-            artefact_metadata_cfg_by_type=artefact_metadata_cfg_by_type,
-        ),
-    )
-
     app.add_route(
         '/components/upgrade-prs',
         components.UpgradePRs(
@@ -402,27 +402,10 @@ def init_app(
         suffix='jwks',
     )
 
-    app.add_route( # TODO remove after clients have been switched to /ocm/component
-        '/cnudie/component',
-        components.Component(
-            component_descriptor_lookup=component_descriptor_lookup,
-            version_lookup=version_lookup,
-            version_filter_callback=version_filter_callback,
-            invalid_semver_ok=invalid_semver_ok,
-        ),
-    )
     app.add_route(
         '/ocm/component',
         components.Component(
             component_descriptor_lookup=component_descriptor_lookup,
-            version_lookup=version_lookup,
-            version_filter_callback=version_filter_callback,
-            invalid_semver_ok=invalid_semver_ok,
-        ),
-    )
-    app.add_route( # TODO remove after clients have been switched to /ocm/component/versions
-        '/cnudie/component/versions',
-        components.GreatestComponentVersions(
             version_lookup=version_lookup,
             version_filter_callback=version_filter_callback,
             invalid_semver_ok=invalid_semver_ok,
@@ -436,33 +419,11 @@ def init_app(
             invalid_semver_ok=invalid_semver_ok,
         ),
     )
-    app.add_route( # TODO remove after clients have been switched to /ocm/component/dependencies
-        '/cnudie/component/dependencies',
-        components.ComponentDependencies(
-            component_descriptor_lookup=component_descriptor_lookup,
-            version_lookup=version_lookup,
-            version_filter_callback=version_filter_callback,
-            invalid_semver_ok=invalid_semver_ok,
-        ),
-    )
     app.add_route(
         '/ocm/component/dependencies',
         components.ComponentDependencies(
             component_descriptor_lookup=component_descriptor_lookup,
             version_lookup=version_lookup,
-            version_filter_callback=version_filter_callback,
-            invalid_semver_ok=invalid_semver_ok,
-        ),
-    )
-    app.add_route( # TODO remove after clients have been switched to /ocm/component/responsibles
-        '/cnudie/component/responsibles',
-        components.ComponentResponsibles(
-            component_descriptor_lookup=component_descriptor_lookup,
-            version_lookup=version_lookup,
-            github_api_lookup=github_api_lookup,
-            addressbook_repo_callback=addressbook_repo_callback,
-            addressbook_relpath_callback=addressbook_relpath_callback,
-            github_mappings_relpath_callback=github_mappings_relpath_callback,
             version_filter_callback=version_filter_callback,
             invalid_semver_ok=invalid_semver_ok,
         ),
@@ -604,6 +565,15 @@ def run_app():
         def serve():
             bjoern.run(app, host, port, reuse_port=True)
 
+        # Starting the server using `spawn` results in a `PickleError`, which is why it should not
+        # be used here. Currently, `spawn` is the default value for macOS as well as Windows, and
+        # it will also become the default for other POSIX systems in the future, see
+        # https://docs.python.org/3/library/multiprocessing.html#contexts-and-start-methods for
+        # reference. That's why, the processes should be started using `fork` instead, which will
+        # work on all POSIX systems but not for Windows.
+        if platform.system() != 'Windows':
+            multiprocessing.set_start_method('fork')
+
         for _ in range(workers - 1):
             proc = multiprocessing.Process(target=serve)
             proc.start()
@@ -627,3 +597,9 @@ def run_app():
 
 if __name__ == '__main__':
     run_app()
+else:
+    # required for uWSGI setup
+    global app
+
+    parsed_arguments = parse_args()
+    app = init(parsed_arguments)

@@ -60,7 +60,10 @@ class BacklogItem:
             data=backlog_item,
             config=dacite.Config(
                 type_hooks=type_hooks,
-                cast=[BacklogPriorities],
+                cast=[
+                    BacklogPriorities,
+                    dso.model.ArtefactKind,
+                ],
             ),
         )
 
@@ -113,6 +116,9 @@ def iter_existing_backlog_items_for_artefact(
         crd_artefact = dacite.from_dict(
             data_class=dso.model.ComponentArtefactId,
             data=backlog_crd.get('spec').get('artefact'),
+            config=dacite.Config(
+                cast=[dso.model.ArtefactKind],
+            ),
         )
 
         if service is config.Services.BDBA:
@@ -234,6 +240,7 @@ def get_backlog_crd_and_claim(
     cfg_name: str,
     namespace: str,
     kubernetes_api: k8s.util.KubernetesApi,
+    shortcut_claim: bool=False,
 ) -> dict | None:
     labels = {
         k8s.model.LABEL_SERVICE: service,
@@ -259,9 +266,14 @@ def get_backlog_crd_and_claim(
     )
 
     backlog_crd = backlog_crds[0]
+
+    if shortcut_claim:
+        return backlog_crd
+
     metadata = backlog_crd.get('metadata')
 
     labels = metadata.get('labels')
+
     labels[LABEL_CLAIMED] = 'True'
     metadata['labels'] = labels
 

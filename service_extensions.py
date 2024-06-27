@@ -10,7 +10,6 @@ import features
 import k8s.backlog
 import k8s.model
 import k8s.util
-import middleware.auth
 
 
 def iter_container_statuses(
@@ -32,7 +31,6 @@ def iter_container_statuses(
             yield k8s.model.ContainerStatus.from_v1_container_status(status)
 
 
-@middleware.auth.noauth
 class ContainerStatuses:
     required_features = (features.FeatureServiceExtensions,)
 
@@ -85,7 +83,6 @@ def iter_log_collections(
         yield log_collection
 
 
-@middleware.auth.noauth
 class LogCollections:
     required_features = (features.FeatureServiceExtensions,)
 
@@ -120,7 +117,6 @@ class LogCollections:
         ))
 
 
-@middleware.auth.noauth
 class ServiceExtensions:
     required_features = (features.FeatureServiceExtensions,)
 
@@ -134,7 +130,6 @@ class ServiceExtensions:
         resp.media = self.service_extensions_callback()
 
 
-@middleware.auth.noauth
 class ScanConfigurations:
     required_features = (features.FeatureServiceExtensions,)
 
@@ -147,10 +142,10 @@ class ScanConfigurations:
         self.kubernetes_api_callback = kubernetes_api_callback
 
     def on_get(self, req: falcon.Request, resp: falcon.Response):
-        resp.media = tuple(k8s.util.iter_scan_configurations(
+        resp.media = k8s.util.iter_scan_configurations(
             namespace=self.namespace_callback(),
             kubernetes_api=self.kubernetes_api_callback(),
-        ))
+        )
 
 
 def iter_backlog_items(
@@ -280,6 +275,9 @@ class BacklogItems:
             artefact = dacite.from_dict(
                 data_class=dso.model.ComponentArtefactId,
                 data=artefact_raw,
+                config=dacite.Config(
+                    cast=[dso.model.ArtefactKind],
+                ),
             )
 
             k8s.backlog.create_backlog_item(

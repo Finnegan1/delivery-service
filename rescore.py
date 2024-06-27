@@ -2,7 +2,6 @@ import collections.abc
 import dataclasses
 import datetime
 import logging
-import typing
 
 import dacite
 import falcon
@@ -59,11 +58,18 @@ class VulnerabilityFinding(dso.model.Finding):
 
 
 @dataclasses.dataclass(frozen=True)
+class MalwareFinding(dso.model.Finding, dso.model.MalwareFindingDetails):
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
 class RescoringProposal:
     finding: (
         LicenseFinding
         | VulnerabilityFinding
+        | MalwareFinding
     )
+    finding_type: str
     severity: Severity
     matching_rules: list[str]
     applicable_rescorings: tuple[dso.model.ArtefactMetadata, ...] # "..." for dacite.from_dict
@@ -86,11 +92,13 @@ def _find_artefact_node(
     component_descriptor_lookup: cnudie.retrieve.ComponentDescriptorLookupById,
     component: cm.Component,
     artefact: dso.model.ComponentArtefactId,
-) -> typing.Union[cnudie.iter.Node, cnudie.iter.ArtefactNode] | None:
-    if artefact.artefact_kind == 'source':
+) -> cnudie.iter.Node | cnudie.iter.ArtefactNode | None:
+    if artefact.artefact_kind is dso.model.ArtefactKind.SOURCE:
         node_filter = cnudie.iter.Filter.sources
-    else:
+    elif artefact.artefact_kind is dso.model.ArtefactKind.RESOURCE:
         node_filter = cnudie.iter.Filter.resources
+    else:
+        raise ValueError(artefact.artefact_kind)
 
     artefact_ref = artefact.artefact
 
@@ -112,7 +120,7 @@ def _find_artefact_node(
 def _find_artefact_node_or_raise(
     component_descriptor_lookup: cnudie.retrieve.ComponentDescriptorLookupById,
     artefact: dso.model.ComponentArtefactId,
-) -> typing.Union[cnudie.iter.Node, cnudie.iter.ArtefactNode]:
+) -> cnudie.iter.Node | cnudie.iter.ArtefactNode:
     component = util.retrieve_component_descriptor(
         cm.ComponentIdentity(
             name=artefact.component_name,
@@ -141,7 +149,7 @@ def _find_artefact_node_or_raise(
 
 
 def _find_cve_label(
-    artefact_node: typing.Union[cnudie.iter.Node, cnudie.iter.ArtefactNode],
+    artefact_node: cnudie.iter.Node | cnudie.iter.ArtefactNode,
 ) -> dso.cvss.CveCategorisation | None:
     label_name = dso.labels.CveCategorisationLabel.name
     artefact = artefact_node.artefact
@@ -157,24 +165,17 @@ def _find_cve_label(
 
 def _find_artefact_metadata(
     session: ss.Session,
-    artefact_node: typing.Union[cnudie.iter.Node, cnudie.iter.ArtefactNode],
+    artefact: dso.model.ComponentArtefactId,
     type_filter: list[str]=[],
 ) -> tuple[dso.model.ArtefactMetadata]:
-    if isinstance(artefact_node, cnudie.iter.ResourceNode):
-        artefact_kind = 'resource'
-    elif isinstance(artefact_node, cnudie.iter.SourceNode):
-        artefact_kind = 'source'
-    else:
-        artefact_kind = 'artefact'
-
     query = session.query(dm.ArtefactMetaData).filter(
         sa.and_(
-            dm.ArtefactMetaData.component_name == artefact_node.component.name,
-            dm.ArtefactMetaData.component_version == artefact_node.component.version,
-            dm.ArtefactMetaData.artefact_kind == artefact_kind,
-            dm.ArtefactMetaData.artefact_name == artefact_node.artefact.name,
-            dm.ArtefactMetaData.artefact_version == artefact_node.artefact.version,
-            dm.ArtefactMetaData.artefact_type == artefact_node.artefact.type,
+            dm.ArtefactMetaData.component_name == artefact.component_name,
+            dm.ArtefactMetaData.component_version == artefact.component_version,
+            dm.ArtefactMetaData.artefact_kind == artefact.artefact_kind,
+            dm.ArtefactMetaData.artefact_name == artefact.artefact.artefact_name,
+            dm.ArtefactMetaData.artefact_version == artefact.artefact.artefact_version,
+            dm.ArtefactMetaData.artefact_type == artefact.artefact.artefact_type,
             dm.ArtefactMetaData.type != dso.model.Datatype.RESCORING,
             sa.or_(
                 not type_filter,
@@ -192,38 +193,31 @@ def _find_artefact_metadata(
 
 def _find_rescorings(
     session: ss.Session,
-    artefact_node: typing.Union[cnudie.iter.Node, cnudie.iter.ArtefactNode],
+    artefact: dso.model.ComponentArtefactId,
     type_filter: list[str]=[],
 ) -> tuple[dso.model.ArtefactMetadata]:
-    if isinstance(artefact_node, cnudie.iter.ResourceNode):
-        artefact_kind = 'resource'
-    elif isinstance(artefact_node, cnudie.iter.SourceNode):
-        artefact_kind = 'source'
-    else:
-        artefact_kind = 'artefact'
-
     rescorings_query = session.query(dm.ArtefactMetaData).filter(
         sa.and_(
             dm.ArtefactMetaData.type == dso.model.Datatype.RESCORING,
             sa.or_(
                 # regular `not` or `is None` not working with sqlalchemy
                 dm.ArtefactMetaData.component_name == sa.null(),
-                dm.ArtefactMetaData.component_name == artefact_node.component.name,
+                dm.ArtefactMetaData.component_name == artefact.component_name,
             ),
             sa.or_(
                 dm.ArtefactMetaData.component_version == sa.null(),
-                dm.ArtefactMetaData.component_version == artefact_node.component.version
+                dm.ArtefactMetaData.component_version == artefact.component_version
             ),
             sa.or_(
                 dm.ArtefactMetaData.artefact_name == sa.null(),
-                dm.ArtefactMetaData.artefact_name == artefact_node.artefact.name,
+                dm.ArtefactMetaData.artefact_name == artefact.artefact.artefact_name,
             ),
             sa.or_(
                 dm.ArtefactMetaData.artefact_version == sa.null(),
-                dm.ArtefactMetaData.artefact_version == artefact_node.artefact.version,
+                dm.ArtefactMetaData.artefact_version == artefact.artefact.artefact_version,
             ),
-            dm.ArtefactMetaData.artefact_kind == artefact_kind,
-            dm.ArtefactMetaData.artefact_type == artefact_node.artefact.type,
+            dm.ArtefactMetaData.artefact_kind == artefact.artefact_kind,
+            dm.ArtefactMetaData.artefact_type == artefact.artefact.artefact_type,
         )
     )
 
@@ -320,6 +314,52 @@ def sprint_for_finding(
     return sprint
 
 
+def _rescorings_and_sprint(
+    artefact_metadatum: dso.model.ArtefactMetadata,
+    rescorings: tuple[dso.model.ArtefactMetadata],
+    max_processing_days: gcm.MaxProcessingTimesDays | None=None,
+    sprints: list[yp.Sprint]=[],
+) -> tuple[tuple[dso.model.ArtefactMetadata], yp.Sprint]:
+    current_rescorings = rescoring_util.rescorings_for_finding_by_specificity(
+        finding=artefact_metadatum,
+        rescorings=rescorings,
+    )
+
+    if current_rescorings:
+        current_severity = gcm.Severity[current_rescorings[0].data.severity]
+    else:
+        current_severity = gcm.Severity[artefact_metadatum.data.severity]
+
+    sprint = sprint_for_finding(
+        finding=artefact_metadatum,
+        severity=current_severity,
+        max_processing_days=max_processing_days,
+        sprints=sprints,
+    )
+
+    return current_rescorings, sprint
+
+
+def _package_versions_and_filesystem_paths(
+    artefact_metadata_across_package_version: tuple[dso.model.ArtefactMetadata],
+    artefact_metadata: tuple[dso.model.ArtefactMetadata],
+    finding: dso.model.ArtefactMetadata,
+) -> tuple[tuple[str], list[dso.model.FilesystemPath]]:
+    package_versions = tuple(
+        matching_am.data.package_version
+        for matching_am in artefact_metadata_across_package_version
+        if matching_am.data.package_version
+    )
+
+    filesystem_paths = filesystem_paths_for_finding(
+        artefact_metadata=artefact_metadata,
+        finding=finding,
+        package_versions=package_versions,
+    )
+
+    return package_versions, filesystem_paths
+
+
 def _iter_rescoring_proposals(
     artefact_metadata: tuple[dso.model.ArtefactMetadata],
     rescorings: tuple[dso.model.ArtefactMetadata],
@@ -328,156 +368,175 @@ def _iter_rescoring_proposals(
     max_processing_days: gcm.MaxProcessingTimesDays | None=None,
     sprints: list[yp.Sprint]=[],
 ) -> collections.abc.Generator[RescoringProposal, None, None]:
+    '''
+    yield rescorings for supported finding types
+    implements special handling for BDBA findings (grouping across different package-versions)
+    '''
+
     seen_ids = set()
 
     for am in artefact_metadata:
-        if am.meta.type == dso.model.Datatype.STRUCTURE_INFO or am.id in seen_ids:
+        if (
+            am.meta.type == dso.model.Datatype.STRUCTURE_INFO
+            or am.id in seen_ids
+        ):
             continue
 
-        matching_artefact_metadata = tuple(
-            matching_am for matching_am in artefact_metadata
-            if (
-                matching_am.id not in seen_ids
-                and matching_am.meta.type == am.meta.type
-                and matching_am.artefact.component_name == am.artefact.component_name
-                and matching_am.artefact.component_version == am.artefact.component_version
-                and matching_am.artefact.artefact_kind == am.artefact.artefact_kind
-                and matching_am.artefact.artefact.artefact_name
-                    == am.artefact.artefact.artefact_name
-                and matching_am.artefact.artefact.artefact_version
-                    == am.artefact.artefact.artefact_version
-                and matching_am.artefact.artefact.artefact_type
-                    == am.artefact.artefact.artefact_type
-                and matching_am.artefact.artefact.normalised_artefact_extra_id()
-                    == am.artefact.artefact.normalised_artefact_extra_id()
-            )
-        )
-
-        seen_ids.add(am.id)
-
-        current_rescorings = rescoring_util.rescorings_for_finding_by_specificity(
-            finding=am,
+        current_rescorings, sprint = _rescorings_and_sprint(
+            artefact_metadatum=am,
             rescorings=rescorings,
-        )
-
-        if current_rescorings:
-            current_severity = gcm.Severity[current_rescorings[0].data.severity]
-        else:
-            current_severity = gcm.Severity[am.data.severity]
-
-        sprint = sprint_for_finding(
-            finding=am,
-            severity=current_severity,
             max_processing_days=max_processing_days,
             sprints=sprints,
         )
+        severity = dso.cvss.CVESeverity[am.data.severity]
 
-        if am.meta.type == dso.model.Datatype.VULNERABILITY:
-            cve = am.data.cve
-            cvss = dso.cvss.CVSSV3.from_dict(cvss=am.data.cvss)
-            cvss_v3_score = am.data.cvss_v3_score
-            severity = dso.cvss.CVESeverity[am.data.severity]
-            package_name = am.data.package_name
-
-            finding_matching_am = tuple(
-                matching_am for matching_am in matching_artefact_metadata
-                if (
-                    matching_am.data.cve == cve and
-                    matching_am.data.package_name == package_name
-                )
-            )
-            seen_ids.update(tuple(matching_am.id for matching_am in finding_matching_am))
-
-            package_versions = tuple(
-                matching_am.data.package_version
-                for matching_am in finding_matching_am
-                if matching_am.data.package_version
-            )
-
-            filesystem_paths = filesystem_paths_for_finding(
-                artefact_metadata=artefact_metadata,
-                finding=am,
-                package_versions=package_versions,
-            )
-
+        if am.meta.type == dso.model.Datatype.MALWARE_FINDING:
             yield dacite.from_dict(
                 data_class=RescoringProposal,
                 data={
                     'finding': {
-                        'package_name': package_name,
-                        'package_versions': package_versions,
+                        'filename': am.data.finding.filename,
+                        'content_digest': am.data.finding.content_digest,
+                        'malware': am.data.finding.malware,
                         'severity': severity.name,
-                        'cve': cve,
-                        'cvss_v3_score': cvss_v3_score,
-                        'cvss': f'{cvss}',
-                        'summary': am.data.summary,
-                        'urls': [f'https://nvd.nist.gov/vuln/detail/{cve}'],
-                        'filesystem_paths': filesystem_paths,
                     },
-                    'severity': _rescore_vulnerabilitiy(
-                        rescoring_rules=rescoring_rules,
-                        categorisation=categorisation,
-                        cvss=cvss,
-                        severity=severity,
-                    ).name,
-                    'matching_rules': [
-                        rule.name for rule in dso.cvss.matching_rescore_rules(
-                            rescoring_rules=rescoring_rules,
-                            categorisation=categorisation,
-                            cvss=cvss,
-                        )
-                    ] if rescoring_rules and categorisation else [
-                        dso.model.MetaRescoringRules.ORIGINAL_SEVERITY,
-                    ],
-                    'applicable_rescorings': current_rescorings,
-                    'discovery_date': am.discovery_date.isoformat(),
-                    'sprint': sprint,
-                },
-            )
-
-        elif am.meta.type == dso.model.Datatype.LICENSE:
-            license = am.data.license
-            severity = am.data.severity
-            package_name = am.data.package_name
-
-            finding_matching_am = tuple(
-                matching_am for matching_am in matching_artefact_metadata
-                if (
-                    matching_am.data.license.name == license.name and
-                    matching_am.data.package_name == package_name
-                )
-            )
-            seen_ids.update(tuple(matching_am.id for matching_am in finding_matching_am))
-
-            package_versions = tuple(
-                matching_am.data.package_version
-                for matching_am in finding_matching_am
-                if matching_am.data.package_version
-            )
-
-            filesystem_paths = filesystem_paths_for_finding(
-                artefact_metadata=artefact_metadata,
-                finding=am,
-                package_versions=package_versions,
-            )
-
-            yield dacite.from_dict(
-                data_class=RescoringProposal,
-                data={
-                    'finding': {
-                        'package_name': package_name,
-                        'package_versions': package_versions,
-                        'severity': severity,
-                        'license': license,
-                        'filesystem_paths': filesystem_paths,
-                    },
-                    'severity': severity,
+                    'finding_type': dso.model.Datatype.MALWARE_FINDING,
+                    'severity': severity.name,
                     'matching_rules': [dso.model.MetaRescoringRules.ORIGINAL_SEVERITY],
                     'applicable_rescorings': current_rescorings,
                     'discovery_date': am.discovery_date.isoformat(),
                     'sprint': sprint,
                 },
             )
+
+        elif am.meta.type in (
+            dso.model.Datatype.VULNERABILITY,
+            dso.model.Datatype.LICENSE,
+        ):
+            artefact_metadata_with_same_ocm = tuple(
+                matching_am for matching_am in artefact_metadata
+                if (
+                    matching_am.id not in seen_ids
+                    and matching_am.meta.type == am.meta.type
+                    and matching_am.artefact.component_name == am.artefact.component_name
+                    and matching_am.artefact.component_version == am.artefact.component_version
+                    and matching_am.artefact.artefact_kind == am.artefact.artefact_kind
+                    and matching_am.artefact.artefact.artefact_name
+                        == am.artefact.artefact.artefact_name
+                    and matching_am.artefact.artefact.artefact_version
+                        == am.artefact.artefact.artefact_version
+                    and matching_am.artefact.artefact.artefact_type
+                        == am.artefact.artefact.artefact_type
+                    and matching_am.artefact.artefact.normalised_artefact_extra_id()
+                        == am.artefact.artefact.normalised_artefact_extra_id()
+                )
+            )
+            package_name = am.data.package_name
+
+            if am.meta.type == dso.model.Datatype.VULNERABILITY:
+                cve = am.data.cve
+                cvss = dso.cvss.CVSSV3.from_dict(cvss=am.data.cvss)
+                cvss_v3_score = am.data.cvss_v3_score
+
+                am_across_package_versions = tuple(
+                    artefact_metadatum for artefact_metadatum in artefact_metadata_with_same_ocm
+                    if (
+                        artefact_metadatum.data.cve == cve and
+                        artefact_metadatum.data.package_name == package_name
+                    )
+                )
+                seen_ids.update(
+                    tuple(
+                        local_am.id for local_am
+                        in am_across_package_versions
+                    )
+                )
+
+                package_versions, filesystem_paths = _package_versions_and_filesystem_paths(
+                    artefact_metadata_across_package_version=am_across_package_versions,
+                    artefact_metadata=artefact_metadata,
+                    finding=am,
+                )
+
+                yield dacite.from_dict(
+                    data_class=RescoringProposal,
+                    data={
+                        'finding': {
+                            'package_name': package_name,
+                            'package_versions': package_versions,
+                            'severity': severity.name,
+                            'cve': cve,
+                            'cvss_v3_score': cvss_v3_score,
+                            'cvss': f'{cvss}',
+                            'summary': am.data.summary,
+                            'urls': [f'https://nvd.nist.gov/vuln/detail/{cve}'],
+                            'filesystem_paths': filesystem_paths,
+                        },
+                        'finding_type': dso.model.Datatype.VULNERABILITY,
+                        'severity': _rescore_vulnerabilitiy(
+                            rescoring_rules=rescoring_rules,
+                            categorisation=categorisation,
+                            cvss=cvss,
+                            severity=severity,
+                        ).name,
+                        'matching_rules': [
+                            rule.name for rule in dso.cvss.matching_rescore_rules(
+                                rescoring_rules=rescoring_rules,
+                                categorisation=categorisation,
+                                cvss=cvss,
+                            )
+                        ] if rescoring_rules and categorisation else [
+                            dso.model.MetaRescoringRules.ORIGINAL_SEVERITY,
+                        ],
+                        'applicable_rescorings': current_rescorings,
+                        'discovery_date': am.discovery_date.isoformat(),
+                        'sprint': sprint,
+                    },
+                )
+
+            elif am.meta.type == dso.model.Datatype.LICENSE:
+                license = am.data.license
+
+                am_across_package_versions = tuple(
+                    matching_am for matching_am in artefact_metadata_with_same_ocm
+                    if (
+                        matching_am.data.license.name == license.name and
+                        matching_am.data.package_name == package_name
+                    )
+                )
+                seen_ids.update(
+                    tuple(
+                        local_am.id for local_am
+                        in am_across_package_versions
+                    )
+                )
+
+                package_versions, filesystem_paths = _package_versions_and_filesystem_paths(
+                    artefact_metadata_across_package_version=am_across_package_versions,
+                    artefact_metadata=artefact_metadata,
+                    finding=am,
+                )
+
+                yield dacite.from_dict(
+                    data_class=RescoringProposal,
+                    data={
+                        'finding': {
+                            'package_name': package_name,
+                            'package_versions': package_versions,
+                            'severity': severity.name,
+                            'license': license,
+                            'filesystem_paths': filesystem_paths,
+                        },
+                        'finding_type': dso.model.Datatype.LICENSE,
+                        'severity': severity.name,
+                        'matching_rules': [dso.model.MetaRescoringRules.ORIGINAL_SEVERITY],
+                        'applicable_rescorings': current_rescorings,
+                        'discovery_date': am.discovery_date.isoformat(),
+                        'sprint': sprint,
+                    },
+                )
+
+        seen_ids.add(am.id)
 
 
 def iter_matching_artefacts(
@@ -548,10 +607,10 @@ def create_backlog_items_for_rescored_artefacts(
     session: ss.Session,
     rescorings: tuple[dso.model.ComponentArtefactId],
 ):
-    scan_configs = tuple(k8s.util.iter_scan_configurations(
+    scan_configs = k8s.util.iter_scan_configurations(
         namespace=namespace,
         kubernetes_api=kubernetes_api,
-    ))
+    )
 
     # only if there is one scan config we can assume for sure that this config should be used
     if len(scan_configs) != 1:
@@ -763,6 +822,8 @@ class Rescore:
             cve_rescoring_rule_set_name=cve_rescoring_rule_set_name,
         )
 
+        artefact_kind = dso.model.ArtefactKind(artefact_kind)
+
         artefact = dso.model.ComponentArtefactId(
             component_name=component_name,
             component_version=component_version,
@@ -775,29 +836,32 @@ class Rescore:
             ),
         )
 
-        artefact_node = _find_artefact_node_or_raise(
-            component_descriptor_lookup=self.component_descriptor_lookup,
-            artefact=artefact,
-        )
+        if dso.model.Datatype.VULNERABILITY in type_filter:
+            artefact_node = _find_artefact_node_or_raise(
+                component_descriptor_lookup=self.component_descriptor_lookup,
+                artefact=artefact,
+            )
 
-        categorisation = _find_cve_label(artefact_node=artefact_node)
+            categorisation = _find_cve_label(artefact_node=artefact_node)
+        else:
+            categorisation = None
 
         artefact_metadata = _find_artefact_metadata(
             session=session,
-            artefact_node=artefact_node,
+            artefact=artefact,
             type_filter=type_filter,
         )
 
         rescorings = _find_rescorings(
             session=session,
-            artefact_node=artefact_node,
+            artefact=artefact,
             type_filter=type_filter,
         )
 
-        scan_configs = tuple(k8s.util.iter_scan_configurations(
+        scan_configs = k8s.util.iter_scan_configurations(
             namespace=self.namespace_callback(),
             kubernetes_api=self.kubernetes_api_callback(),
-        ))
+        )
 
         # only if there is one scan config we can assume for sure that this config should be used
         if len(scan_configs) != 1:

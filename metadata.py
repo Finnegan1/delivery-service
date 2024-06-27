@@ -16,10 +16,8 @@ import deliverydb.model as dm
 import deliverydb.util as du
 import eol
 import features
-import middleware.auth
 
 
-@middleware.auth.noauth
 class ArtefactMetadata:
     required_features = (features.FeatureDeliveryDB,)
 
@@ -157,10 +155,6 @@ class ArtefactMetadata:
             artefact_metadata_cfg_by_type=self.artefact_metadata_cfg_by_type,
         ))
 
-    def on_post(self, req: falcon.Request, resp: falcon.Response):
-        # TODO: remove after clients have been switched to PUT /artefacts/metadata
-        self.on_put(req, resp)
-
     def on_put(self, req: falcon.Request, resp: falcon.Response):
         '''
         update artefact-metadata in delivery-db
@@ -239,6 +233,7 @@ class ArtefactMetadata:
                     if (
                         existing_entry.type != metadata_entry.type
                         or existing_entry.component_name != metadata_entry.component_name
+                        or existing_entry.artefact_kind != metadata_entry.artefact_kind
                         or existing_entry.artefact_name != metadata_entry.artefact_name
                         or existing_entry.artefact_type != metadata_entry.artefact_type
                     ):

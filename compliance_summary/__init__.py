@@ -2,7 +2,6 @@ import collections.abc
 import dataclasses
 import enum
 import logging
-import re
 import typing
 
 import awesomeversion
@@ -81,28 +80,6 @@ class CodecheckSeverityNamesMapping(SeverityMappingBase):
         for risk_severity_name in self.codecheckSeverityNames:
             if findings[risk_severity_name]:
                 return self.severityName
-
-        return None
-
-
-@dataclasses.dataclass(frozen=True)
-class MalwareNamesMapping(SeverityMappingBase):
-    malwareNames: list[str]
-
-    def match(
-        self,
-        finding: dso.model.ArtefactMetadata,
-        **kwargs,
-    ) -> str | None:
-        malware_findings = finding.data.findings
-
-        if not malware_findings:
-            return ComplianceEntrySeverity.CLEAN.name
-
-        for malware_name in self.malwareNames:
-            for malware_finding in malware_findings:
-                if re.fullmatch(malware_name, malware_finding.name):
-                    return self.severityName
 
         return None
 
@@ -206,7 +183,6 @@ class ArtefactMetadataCfg:
     type: str
     severityMappings: typing.Optional[list[
         typing.Union[
-            MalwareNamesMapping,
             OsStatusMapping,
             CodecheckSeverityNamesMapping,
         ]
@@ -293,12 +269,6 @@ def component_summaries(
                 severity=ComplianceEntrySeverity.UNKNOWN,
                 scanStatus=ComplianceScanStatus.NO_DATA,
             ),
-            dso.model.Datatype.MALWARE: ComplianceSummaryEntry(
-                type=dso.model.Datatype.MALWARE,
-                source=dso.model.Datasource.CLAMAV,
-                severity=ComplianceEntrySeverity.UNKNOWN,
-                scanStatus=ComplianceScanStatus.NO_DATA,
-            ),
             dso.model.Datatype.OS_IDS: ComplianceSummaryEntry(
                 type=dso.model.Datatype.OS_IDS,
                 source=dso.model.Datasource.CC_UTILS,
@@ -308,6 +278,12 @@ def component_summaries(
             dso.model.Datatype.CODECHECKS_AGGREGATED: ComplianceSummaryEntry(
                 type=dso.model.Datatype.CODECHECKS_AGGREGATED,
                 source=dso.model.Datasource.CHECKMARX,
+                severity=ComplianceEntrySeverity.UNKNOWN,
+                scanStatus=ComplianceScanStatus.NO_DATA,
+            ),
+            dso.model.Datatype.MALWARE_FINDING: ComplianceSummaryEntry(
+                type=dso.model.Datatype.MALWARE_FINDING,
+                source=dso.model.Datasource.CLAMAV,
                 severity=ComplianceEntrySeverity.UNKNOWN,
                 scanStatus=ComplianceScanStatus.NO_DATA,
             )
@@ -417,9 +393,9 @@ def severity_for_finding(
     known_artefact_metadata_types: tuple[str] = (
         dso.model.Datatype.VULNERABILITY,
         dso.model.Datatype.LICENSE,
-        dso.model.Datatype.MALWARE,
         dso.model.Datatype.OS_IDS,
         dso.model.Datatype.CODECHECKS_AGGREGATED,
+        dso.model.Datatype.MALWARE_FINDING,
     ),
 ) -> str | None:
     '''
@@ -443,6 +419,7 @@ def severity_for_finding(
     if finding.meta.type in (
         dso.model.Datatype.LICENSE,
         dso.model.Datatype.VULNERABILITY,
+        dso.model.Datatype.MALWARE_FINDING,
     ):
         # these types have the severity already stored in their data field
         # no need to do separate severity mapping

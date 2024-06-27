@@ -127,9 +127,9 @@ def _artefacts_for_backlog_item_and_components(
             version=component.version
         )).component
 
-        if artefact_kind == 'resource':
+        if artefact_kind is dso.model.ArtefactKind.RESOURCE:
             artefacts = component.resources
-        elif artefact_kind == 'source':
+        elif artefact_kind is dso.model.ArtefactKind.SOURCE:
             artefacts = component.sources
         else:
             raise NotImplementedError(artefact_kind)
@@ -151,12 +151,12 @@ def _artefacts_for_backlog_item_and_components(
             #     continue
 
             # found artefact of backlog item in component's artefact
-            if artefact_kind == 'resource':
+            if artefact_kind is dso.model.ArtefactKind.RESOURCE:
                 artefact_node = cnudie.iter.ResourceNode(
                     path=(cnudie.iter.NodePathEntry(component),),
                     resource=artefact,
                 )
-            elif artefact_kind == 'source':
+            elif artefact_kind is dso.model.ArtefactKind.SOURCE:
                 artefact_node = cnudie.iter.SourceNode(
                     path=(cnudie.iter.NodePathEntry(component),),
                     source=artefact,
@@ -195,7 +195,7 @@ def _iter_findings_for_artefact(
             dso.model.Datatype.ARTEFACT_SCAN_INFO,
             dso.model.Datatype.VULNERABILITY,
             dso.model.Datatype.LICENSE,
-            dso.model.Datatype.MALWARE,
+            dso.model.Datatype.MALWARE_FINDING,
         ),
     )
 
@@ -205,20 +205,9 @@ def _iter_findings_for_artefact(
         referenced_type=(
             dso.model.Datatype.VULNERABILITY,
             dso.model.Datatype.LICENSE,
-            dso.model.Datatype.MALWARE,
+            dso.model.Datatype.MALWARE_FINDING,
         ),
     )
-
-    def _severity_for_finding(
-        finding: dso.model.ArtefactMetadata,
-    ) -> gcm.Severity:
-        if finding.meta.type == dso.model.Datatype.MALWARE:
-            if not (severity := finding.data.severity):
-                return gcm.Severity.BLOCKER
-
-            return gcm.Severity[severity]
-
-        return gcm.Severity[finding.data.severity]
 
     for finding in findings_for_components:
         if not (
@@ -241,7 +230,7 @@ def _iter_findings_for_artefact(
         elif finding.meta.type != dso.model.Datatype.ARTEFACT_SCAN_INFO:
             # artefact scan info does not have any severity but is just retrieved to evaluate
             # whether a scan exists for the given artefacts (if no finding is found)
-            severity = _severity_for_finding(finding=finding)
+            severity = gcm.Severity[finding.data.severity]
         else:
             severity = None
 
@@ -318,7 +307,7 @@ def _findings_by_type_and_date(
     datasource_for_datatype = {
         dso.model.Datatype.VULNERABILITY: dso.model.Datasource.BDBA,
         dso.model.Datatype.LICENSE: dso.model.Datasource.BDBA,
-        dso.model.Datatype.MALWARE: dso.model.Datasource.CLAMAV,
+        dso.model.Datatype.MALWARE_FINDING: dso.model.Datasource.CLAMAV,
     }
 
     for latest_processing_date in latest_processing_dates:
@@ -364,8 +353,8 @@ def replicate_issue(
 ):
     artefact = backlog_item.artefact
     logger.info(
-        f'starting issue replication of artefact {artefact.artefact.artefact_name} '
-        f'of component {artefact.component_name}'
+        f'starting issue replication of {backlog_item.artefact.artefact_kind} '
+        f'{artefact.artefact.artefact_name} of component {artefact.component_name}'
     )
 
     compliance_snapshots = delivery_client.query_metadata(
@@ -446,6 +435,12 @@ def replicate_issue(
         ):
             return gci._label_licenses
 
+        elif (
+            finding_type == dso.model.Datatype.MALWARE_FINDING
+            and finding_source == dso.model.Datasource.CLAMAV
+        ):
+            return gci._label_malware
+
         else:
             raise NotImplementedError(f'{finding_type=} is not supported for {finding_source=}')
 
@@ -492,8 +487,8 @@ def replicate_issue(
         )
 
     logger.info(
-        f'finished issue replication of artefact {artefact.artefact.artefact_name} '
-        f'of component {artefact.component_name}'
+        f'finished issue replication of {backlog_item.artefact.artefact_kind} '
+        f'{artefact.artefact.artefact_name} of component {artefact.component_name}'
     )
 
 
