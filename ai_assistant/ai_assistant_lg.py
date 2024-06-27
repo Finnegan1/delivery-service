@@ -1,22 +1,24 @@
+import json
 import os
 import pprint
 
 import falcon
-
-import cnudie.retrieve
 import langchain_core
 import langchain_core.messages
-import middleware.auth
-import gci.componentmodel
-import ai_assistant.langraph_graph
 import langchain_core.runnables
 import langfuse.callback
+
+import cnudie.retrieve
+import gci.componentmodel
+
 import ai_assistant.langgraph_graph_simple
+import middleware.auth
 
 DEFAULT_API_VERSION = os.getenv('DEFAULT_API_VERSION')
 MICROSOFT_AZURE_OPENAI_API_KEY = os.getenv('MICROSOFT_AZURE_OPENAI_API_KEY')
 MICROSOFT_AZURE_OPENAI_API_ENDPOINT = os.getenv('MICROSOFT_AZURE_OPENAI_API_ENDPOINT')
 OPEN_AI_MODEL = os.getenv('OPEN_AI_MODEL')
+
 
 @middleware.auth.noauth
 class AiAssistantChatLG:
@@ -33,7 +35,7 @@ class AiAssistantChatLG:
         self.github_api_lookup = github_api_lookup
         self.invalid_semver_ok = invalid_semver_ok
 
-    def on_get(self, req: falcon.Request, resp: falcon.Response):
+    def on_post(self, req: falcon.Request, resp: falcon.Response):
         '''
         respods with chat message to question
 
@@ -47,12 +49,13 @@ class AiAssistantChatLG:
         '''
 
         def generate_response():
+            print("start")
             body = req.media
             pprint.pprint(body)
             old_messages: list[langchain_core.messages.MessageLikeRepresentation] = body.get('oldMessages')
             question: str = body.get('question')
             root_component_identity_str: str = body.get('rootComponentIdentity')
-            current_component_identity_str: str =  body.get('currentComponentIdentity')
+            current_component_identity_str: str = body.get('currentComponentIdentity')
 
             root_component_identity = gci.componentmodel.ComponentIdentity(
                 name=root_component_identity_str.split(":")[0],
@@ -64,12 +67,12 @@ class AiAssistantChatLG:
                 version=current_component_identity_str.split(':')[1],
             )
 
-            ai_graph = ai_assistant.langgraph_graph_simple.create_custome_graph(
-                component_descriptor_lookup = self._component_descriptor_lookup,
-                component_version_lookup = self._component_version_lookup,
-                github_api_lookup = self.github_api_lookup,
+            ai_graph = ai_assistant.langgraph_graph_simple.create_custom_graph(
+                component_descriptor_lookup=self._component_descriptor_lookup,
+                component_version_lookup=self._component_version_lookup,
+                github_api_lookup=self.github_api_lookup,
                 root_component_identity=root_component_identity,
-                invalid_semver_ok = self.invalid_semver_ok,
+                invalid_semver_ok=self.invalid_semver_ok,
                 db_session=req.context.db_session,
             )
 
@@ -87,15 +90,26 @@ class AiAssistantChatLG:
                     'old_chat': old_messages,
                     'question': question,
                     'messages': [],
-                    'answer':'',
+                    'answer': '',
                     'current_plan': '',
                 },
                 config=runnable_config,
                 stream_mode='values',
-                #version='v1',
             ):
                 pprint.pprint(state['messages'])
-                yield f"data: {state['messages']}\n\n".encode('utf-8')
+                yield f"""data: {
+                    json.dumps({
+                        "old_messages": [
+                            (message['type'], message['content']) for message in state['old_chat']
+                        ],
+                        "messages": [
+                            (message.type, message.content) for message in state['messages']
+                        ],
+                        "question": state['question'],
+                        "current_plan": state['current_plan'],
+                        "answer": state['answer'],
+                    })
+                }\n\n""".encode('utf-8')
 
         resp.content_type = 'text/event-stream'
         resp.cache_control = 'no-cache'
