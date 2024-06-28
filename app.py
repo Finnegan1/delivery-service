@@ -512,6 +512,7 @@ def init_app(
             component_version_lookup=version_lookup,
             github_api_lookup=github_api_lookup,
             invalid_semver_ok=invalid_semver_ok,
+            eol_client=eol_client,
         )
     )
 

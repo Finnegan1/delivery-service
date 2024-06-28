@@ -17,14 +17,16 @@ import sqlalchemy.orm.session
 import components
 import deliverydb.model
 import deliverydb.util
+import eol
 import features
 
+
 def _get_component(
-    component_descriptor_lookup: cnudie.retrieve.ComponentDescriptorLookupById,
-    component_version_lookup: cnudie.retrieve.VersionLookupByComponent,
-    component_name: str,
-    component_version: str,
-    invalid_semver_ok: bool = False,
+        component_descriptor_lookup: cnudie.retrieve.ComponentDescriptorLookupById,
+        component_version_lookup: cnudie.retrieve.VersionLookupByComponent,
+        component_name: str,
+        component_version: str,
+        invalid_semver_ok: bool = False,
 ):
     if component_version == 'greatest':
         component_version = components.greatest_version_if_none(
@@ -41,15 +43,14 @@ def _get_component(
     )
 
 
-
 def get_ocm_tools(
-    db_session: sqlalchemy.orm.session.Session,
-    component_descriptor_lookup: cnudie.retrieve.ComponentDescriptorLookupById,
-    component_version_lookup: cnudie.retrieve.VersionLookupByComponent,
-    github_api_lookup,
-    invalid_semver_ok: bool=False,
+        db_session: sqlalchemy.orm.session.Session,
+        component_descriptor_lookup: cnudie.retrieve.ComponentDescriptorLookupById,
+        component_version_lookup: cnudie.retrieve.VersionLookupByComponent,
+        github_api_lookup,
+        landscape_components: list[gci.componentmodel.Component],
+        invalid_semver_ok: bool = False,
 ) -> list[langchain.tools.BaseTool]:
-
     class GetComponentDescriptorInformationSchema(langchain_core.pydantic_v1.BaseModel):
         component_name: str = langchain_core.pydantic_v1.Field(
             description=(
@@ -57,7 +58,7 @@ def get_ocm_tools(
                 ' be acquired.'
             )
         )
-        component_version:str = langchain_core.pydantic_v1.Field(
+        component_version: str = langchain_core.pydantic_v1.Field(
             description=(
                 'Version of the OCM Component. It should be a string following the semantic'
                 ' versioning format (e.g., "2.1.1") or the string "greatest".'
@@ -69,7 +70,8 @@ def get_ocm_tools(
             'sources',
             'componentReferences_names',
             'componentReferences_identifications',
-            'os'
+            'os',
+            'resources',
         ]] = langchain_core.pydantic_v1.Field(
             description='Which information about the component will be returned.',
         )
@@ -77,24 +79,24 @@ def get_ocm_tools(
     class GetComponentDescriptorInformation(langchain.tools.BaseTool):
         name = 'get_component_descriptor_information'
         description = (
-            'A tool that Retrieves information about an OCM Component based on a component name'
-            ' and version.'
+            'A tool that Retrieves information about an OCM Component from within the landscape.'
         )
         args_schema: typing.Type[
-            langchain_core.pydantic_v1.BaseModel
-        ] | None = GetComponentDescriptorInformationSchema
+                         langchain_core.pydantic_v1.BaseModel
+                     ] | None = GetComponentDescriptorInformationSchema
 
         def _run(
-            self,
-            component_name: str,
-            component_version:str,
-            information: list[typing.Literal[
-                'componentName',
-                'componentVersion',
-                'sources',
-                'componentReferences_names',
-                'componentReferences_identifications'
-            ]]
+                self,
+                component_name: str,
+                component_version: str,
+                information: list[typing.Literal[
+                    'componentName',
+                    'componentVersion',
+                    'sources',
+                    'componentReferences_names',
+                    'componentReferences_identifications',
+                    'resources',
+                ]]
         ):
             if component_version == 'greatest':
                 component_version = components.greatest_version_if_none(
@@ -105,14 +107,15 @@ def get_ocm_tools(
                     invalid_semver_ok=invalid_semver_ok,
                 )
 
-            try:
-                component_descriptor = _get_component(
-                    component_name=component_name,
-                    component_version=component_version,
-                    component_descriptor_lookup=component_descriptor_lookup,
-                    component_version_lookup=component_version_lookup,
-                )
-            except Exception as e:
+            component = next((
+                component
+                for component
+                in landscape_components
+                if component.name == component_name
+                   and component.version == component_version
+            ), None)
+
+            if component is None:
                 return f'''
                     Querying the Component Descriptor with the following Name and
                     Version was not possible.
@@ -121,28 +124,27 @@ def get_ocm_tools(
                     Version: {component_version}
 
                     Thrown Exception:
-                        {e}
+                        component is not within the landscape
                 '''
-
             result_map = {}
 
             if 'componentName' in information:
-                result_map['componentName'] = component_descriptor.component.name
+                result_map['componentName'] = component.name
             if 'componentVersion' in information:
-                result_map['componentVersion'] = component_descriptor.component.version
+                result_map['componentVersion'] = component.version
             if 'sources' in information:
-                result_map['sources'] = component_descriptor.component.sources
+                result_map['sources'] = component.sources
             if 'componentReferences_names' in information:
                 result_map['componentReferences_names'] = [
                     reference.componentName
                     for reference
-                    in component_descriptor.component.componentReferences
+                    in component.componentReferences
                 ]
             if 'componentReferences_identifications' in information:
                 result_map['componentReferences_identifications'] = [
                     f'{reference.componentName}:{reference.version}'
                     for reference
-                    in component_descriptor.component.componentReferences
+                    in component.componentReferences
                 ]
             if 'os' in information:
                 os_query = db_session.query(
@@ -151,165 +153,358 @@ def get_ocm_tools(
                     deliverydb.model.ArtefactMetaData.type == dso.model.Datatype.OS_IDS,
                     sqlalchemy.or_(deliverydb.util.ArtefactMetadataQueries.component_queries(
                         components=[gci.componentmodel.ComponentIdentity(
-                            name=component_name,
-                            version=component_version,
+                            name=component.name,
+                            version=component.version,
                         )],
                     )),
                 )
                 result_map['os'] = os_query.first()
+            if 'resources' in information:
+                result_map['resources'] = [
+                    {
+                        'name': resource.name,
+                        'version': resource.version,
+                        'type': resource.type
+                    }
+                    for resource
+                    in component.resources
+                ]
 
             return result_map
 
-    class SearchInTransitiveComponentReferencesByNamesSchema(langchain_core.pydantic_v1.BaseModel):
-        root_component_name: str = langchain_core.pydantic_v1.Field(
-            description='Name of the root component that serves as the starting point for the tree.'
-        )
-        root_component_version: str = langchain_core.pydantic_v1.Field(
+    class GetComponentResourcesInfoSchema(langchain_core.pydantic_v1.BaseModel):
+        component_name: str = langchain_core.pydantic_v1.Field(
             description=(
-                'Version of the root component that serves as the starting point for the tree.'
-            ),
+                'The name of the OCM Component for which the Resources Information should'
+                ' be acquired.'
+            )
         )
-        searched_component_names: list[str] = langchain_core.pydantic_v1.Field(
+        component_version: str = langchain_core.pydantic_v1.Field(
             description=(
-                'Component names to be searched for in the component reference tree structure.'
-            ),
+                'Version of the OCM Component. It should be a string following the semantic'
+                ' versioning format (e.g., "2.1.1") or the string "greatest".'
+            )
+        )
+        resource_names: list[str] = langchain_core.pydantic_v1.Field(
+            description='Name of the resources.',
+        )
+        resource_info: list[typing.Literal[
+            'os',
+            'resource_type',
+            'resource_access',
+        ]] = langchain_core.pydantic_v1.Field(
+            description='Selection, which information should be obtained'
         )
 
-    class SearchInTransitiveComponentReferencesByNames(langchain.tools.BaseTool):
-        name = 'search_in_transitive_component_references_by_names'
+    class GetComponentResourcesInfo(langchain.tools.BaseTool):
+        name = 'get_component_resources_info'
         description = (
-            'A tool that uses names to search for a components within a component reference tree.'
+            'A tool that Retrieves information about specific resources of an specific Component.'
         )
         args_schema: typing.Type[
             langchain_core.pydantic_v1.BaseModel
-        ] | None = SearchInTransitiveComponentReferencesByNamesSchema
+        ] | None = GetComponentResourcesInfoSchema
 
         def _run(
             self,
-            root_component_name: str,
-            root_component_version: str,
+            component_name: str,
+            component_version: str,
+            resource_names: list[str],
+            resource_info: list[typing.Literal[
+                'resource_info',
+                'resource_type',
+                'resource_access',
+            ]]
+        ):
+            if component_version == 'greatest':
+                component_version = components.greatest_version_if_none(
+                    component_name=component_name,
+                    version=None,
+                    version_lookup=component_version_lookup,
+                    version_filter=features.VersionFilter.RELEASES_ONLY,
+                    invalid_semver_ok=invalid_semver_ok,
+                )
+            component = next((
+                component
+                for component
+                in landscape_components
+                if component.name == component_name
+                   and component.version == component_version
+            ), None)
+
+            if component is None:
+                return '''
+                Component could not be found within the landscape!
+                '''
+
+            results = []
+
+            for resource in component.resources:
+                if resource.name in resource_names:
+                    resource_info_dict = {'name': resource.name, 'version': resource.version}
+                    if 'os' in resource_info:
+                        os_query = db_session.query(
+                            deliverydb.model.ArtefactMetaData.data.op('->>')('os_info'),
+                        ).filter(
+                            deliverydb.model.ArtefactMetaData.type == dso.model.Datatype.OS_IDS,
+                            sqlalchemy.or_(
+                                deliverydb.util.ArtefactMetadataQueries.component_queries(
+                                    components=[gci.componentmodel.ComponentIdentity(
+                                        name=component.name,
+                                        version=component.version,
+                                    )],
+                                )
+                            ),
+                            deliverydb.model.ArtefactMetaData.artefact_name == resource.name,
+                            deliverydb.model.ArtefactMetaData.artefact_version == resource.version,
+                        )
+                        resource_info_dict['os'] = os_query.first()
+                    if 'resource_type' in resource_info:
+                        resource_info_dict['resource_type'] = resource.type
+                    if 'resource_access' in resource_info:
+                        resource_info_dict['resource_access'] = resource.access
+
+                    results.append(resource_info_dict)
+            return results
+
+    class GetResourcesOfComponentByOSSchema(langchain_core.pydantic_v1.BaseModel):
+        component_name: str = langchain_core.pydantic_v1.Field(
+            description=(
+                'The name of the OCM Component for which the Resources Information should'
+                ' be acquired.'
+            )
+        )
+        component_version: str = langchain_core.pydantic_v1.Field(
+            description=(
+                'Version of the OCM Component. It should be a string following the semantic'
+                ' versioning format (e.g., "2.1.1") or the string "greatest".'
+            )
+        )
+        os_ids: list[str] = langchain_core.pydantic_v1.Field(
+            description='os id\'s by which the resources get filtered',
+        )
+
+    class GetResourcesOfComponentByOS(langchain.tools.BaseTool):
+        name = 'get_resources_of_component_by_os'
+        description = (
+            'A tool that return all resource names and versions of resources which are'
+            ' based on one of the given os id\'s.'
+        )
+        args_schema: typing.Type[
+            langchain_core.pydantic_v1.BaseModel
+        ] | None = GetResourcesOfComponentByOSSchema
+
+        def _run(
+            self,
+            component_name: str,
+            component_version: str,
+            os_ids: list[str],
+        ):
+            if component_version == 'greatest':
+                component_version = components.greatest_version_if_none(
+                    component_name=component_name,
+                    version=None,
+                    version_lookup=component_version_lookup,
+                    version_filter=features.VersionFilter.RELEASES_ONLY,
+                    invalid_semver_ok=invalid_semver_ok,
+                )
+
+            component = next((
+                component
+                for component
+                in landscape_components
+                if component.name == component_name
+                   and component.version == component_version
+            ), None)
+
+            if component is None:
+                return '''
+                Component could not be found within the landscape!
+                '''
+
+            component_id = gci.componentmodel.ComponentIdentity(
+                name=component.name,
+                version=component.version,
+            )
+
+            findings_query = db_session.query(
+                deliverydb.model.ArtefactMetaData.artefact_name,
+                deliverydb.model.ArtefactMetaData.artefact_version,
+                deliverydb.model.ArtefactMetaData.data.op('->>')('os_info'),
+            ).filter(
+                deliverydb.model.ArtefactMetaData.type == dso.model.Datatype.OS_IDS,
+                sqlalchemy.or_(
+                    deliverydb.util.ArtefactMetadataQueries.component_queries(
+                        components=[component_id],
+                    )
+                ),
+                deliverydb.model.ArtefactMetaData.data.op('->')('os_info').op('->>')('ID').in_(os_ids),
+            ).distinct()
+
+            findings_raw = findings_query.all()
+            findings = [
+                {
+                    'name': raw[0],
+                    'version': raw[1],
+                    'oc_info': raw[2],
+                }
+                for raw in findings_raw
+            ]
+            return findings
+
+    class GetAllInLandscapeUsedOS(langchain.tools.BaseTool):
+        name = 'get_all_in_landscape_used_os'
+        description = (
+            'A tool that returns all Operating Systems that are used in the landscape.'
+        )
+        args_schema: typing.Type[
+            langchain_core.pydantic_v1.BaseModel
+        ] | None = langchain_core.pydantic_v1.BaseModel
+
+        def _run(self):
+
+            landscape_component_ids = [
+                gci.componentmodel.ComponentIdentity(
+                    name=component.name,
+                    version=component.version,
+                )
+                for component
+                in landscape_components
+            ]
+
+            os_query = db_session.query(
+                deliverydb.model.ArtefactMetaData.data['os_info'].op('->>')('ID'),
+                deliverydb.model.ArtefactMetaData.data['os_info'].op('->>')('VERSION_ID'),
+                deliverydb.model.ArtefactMetaData.data['os_info'].op('->>')('PRETTY_NAME'),
+            ).filter(
+                deliverydb.model.ArtefactMetaData.type == dso.model.Datatype.OS_IDS,
+                sqlalchemy.or_(
+                    deliverydb.util.ArtefactMetadataQueries.component_queries(
+                        components=landscape_component_ids,
+                    )
+                ),
+            ).distinct()
+
+            os_raw = os_query.all()
+
+            os_list = [
+                {
+                    'os_id': os[0],
+                    'os_version_id': os[1],
+                } for os in os_raw
+            ]
+
+            return os_list
+
+    class SearchInLandscapeByNamesSchema(langchain_core.pydantic_v1.BaseModel):
+        searched_component_names: list[str] = langchain_core.pydantic_v1.Field(
+            description=(
+                'Component names to be searched for in the component reference tree structure.'
+            )
+        )
+
+    class SearchInLandscapeByNames(langchain.tools.BaseTool):
+        name = 'search_in_landscape_by_names'
+        description = (
+            'A tool that uses names to search for components within the landscape.'
+        )
+        args_schema: typing.Type[
+            langchain_core.pydantic_v1.BaseModel
+        ] | None = SearchInLandscapeByNamesSchema
+
+        def _run(
+            self,
             searched_component_names: list[str],
         ):
             if len(searched_component_names) == 0:
                 return 'You need to provide at least one valid name in searched_component_names!'
 
-            if root_component_version == 'greatest':
-                root_component_version = components.greatest_version_if_none(
-                    component_name=root_component_name,
-                    version=None,
-                    version_lookup=component_version_lookup,
-                    version_filter=features.VersionFilter.RELEASES_ONLY,
-                    invalid_semver_ok=invalid_semver_ok,
-                )
-
-            component_references = components.resolve_component_dependencies(
-                component_name=root_component_name,
-                component_version=root_component_version,
-                component_descriptor_lookup=component_descriptor_lookup,
-                ctx_repo=None,
-            )
-
-            filtered_component_references = [
+            filtered_components = [
                 {
-                    'name': component.component.name,
-                    'version': component.component.version,
+                    'name': component.name,
+                    'version': component.version,
                 }
                 for component
-                in component_references
-                if component.component.name in searched_component_names
+                in landscape_components 
+                if component.name in searched_component_names
             ]
-            return {'componentReferences': filtered_component_references}
+            return {'components': filtered_components}
 
-
-    class SearchInTransitiveComponentReferencesByOSSchema(langchain_core.pydantic_v1.BaseModel):
-        root_component_name: str = langchain_core.pydantic_v1.Field(
-            description='Name of the root component that serves as the starting point for the tree.'
-        )
-        root_component_version: str = langchain_core.pydantic_v1.Field(
+    class SearchComponentsInLandscapeByResourceWithSpecificOSSchema(langchain_core.pydantic_v1.BaseModel):
+        searched_os_id: str = langchain_core.pydantic_v1.Field(
             description=(
-                'Version of the root component that serves as the starting point for the tree.'
+                'Operating System id to be searched for in the resources of the components.'
             ),
         )
-        searched_component_os: list[str] = langchain_core.pydantic_v1.Field(
+        searched_os_version_id: str = langchain_core.pydantic_v1.Field(
             description=(
-                'List of Operating Systems to be searched for in the transitive component'
-                ' references tree.'
-                ' Must be written in lower case! Example input is: ["debian", "alpine"]'
+                'Operating System version to be searched for in the resources of the components.'
             ),
         )
 
-    class SearchInTransitiveComponentReferencesByOS(langchain.tools.BaseTool):
-        name='search_in_transitive_component_references_by_os'
-        description=(
-            'Searches for components by the os, they are based on. The search takes place in the'
-            ' transitive references of a component.'
+    class SearchComponentsInLandscapeByResourceWithSpecificOS(langchain.tools.BaseTool):
+        name = 'search_components_in_landscape_by_resource_with_specific_os'
+        description = (
+            'A tool that searches for components within the landscape that have resources'
+            ' with a specific operating system.'
         )
         args_schema: typing.Type[
             langchain_core.pydantic_v1.BaseModel
-        ] | None = SearchInTransitiveComponentReferencesByOSSchema
+        ] | None = SearchComponentsInLandscapeByResourceWithSpecificOSSchema
 
         def _run(
-            self,
-            root_component_name: str,
-            root_component_version: str,
-            searched_component_os: list[str],
+                self,
+                searched_os_id: str,
+                searched_os_version_id: str,
         ):
-            if len(searched_component_os) == 0:
-                return 'You need to provide at least one valid os name in searched_component_os!'
 
-            if root_component_version == 'greatest':
-                root_component_version = components.greatest_version_if_none(
-                    component_name=root_component_name,
-                    version=None,
-                    version_lookup=component_version_lookup,
-                    version_filter=features.VersionFilter.RELEASES_ONLY,
-                    invalid_semver_ok=invalid_semver_ok,
-                )
-
-            component_references = components.resolve_component_dependencies(
-                component_name=root_component_name,
-                component_version=root_component_version,
-                component_descriptor_lookup=component_descriptor_lookup,
-                ctx_repo=None,
-            )
-
-            reference_ids = [
+            landscape_component_ids = [
                 gci.componentmodel.ComponentIdentity(
-                    name=reference.component.name,
-                    version=reference.component.version,
+                    name=component.name,
+                    version=component.version,
                 )
-                for reference
-                in component_references
+                for component
+                in landscape_components
             ]
 
             findings_query = db_session.query(
                 deliverydb.model.ArtefactMetaData.component_name,
                 deliverydb.model.ArtefactMetaData.component_version,
                 deliverydb.model.ArtefactMetaData.data['os_info'].op('->>')('ID'),
+                deliverydb.model.ArtefactMetaData.data['os_info'].op('->>')('VERSION_ID'),
             ).filter(
                 sqlalchemy.or_(deliverydb.util.ArtefactMetadataQueries.component_queries(
-                    components=reference_ids
+                    components=landscape_component_ids
                 )),
                 deliverydb.model.ArtefactMetaData.type == dso.model.Datatype.OS_IDS,
-                deliverydb.model.ArtefactMetaData.data['os_info']
-                .op('->>')('ID')
-                .in_(searched_component_os)
+                deliverydb.model.ArtefactMetaData.data['os_info'].op('->>')('ID') == searched_os_id,
+                deliverydb.model.ArtefactMetaData.data['os_info'].op('->>')('VERSION_ID').isnot(None)
+                    if searched_os_version_id is None or searched_os_version_id == '' or searched_os_version_id == '*'
+                    else deliverydb.model.ArtefactMetaData.data['os_info'].op('->>')('VERSION_ID') == searched_os_version_id
             ).distinct()
 
             findings = findings_query.all()
 
-            return findings
-
+            return [{
+                'name': finding[0],
+                'version': finding[1],
+                'os_id': finding[2],
+                'os_version_id': finding[3],
+            } for finding in findings]
 
     return [
         GetComponentDescriptorInformation(),
-        SearchInTransitiveComponentReferencesByNames(),
-        SearchInTransitiveComponentReferencesByOS(),
+        GetComponentResourcesInfo(),
+        GetResourcesOfComponentByOS(),
+        SearchInLandscapeByNames(),
+        SearchComponentsInLandscapeByResourceWithSpecificOS(),
+        GetAllInLandscapeUsedOS(),
     ]
 
 
-def create_routing_tools_list(routing_options: list[str]) -> list[langchain.tools.BaseTool]:
-
+def create_routing_tools_list(
+        routing_options: list[str],
+) -> list[langchain.tools.BaseTool]:
     class RouteToolSchema(langchain_core.pydantic_v1.BaseModel):
         next: str = langchain_core.pydantic_v1.Field(
             description="Next Node",
@@ -328,15 +523,16 @@ def create_routing_tools_list(routing_options: list[str]) -> list[langchain.tool
     return [RouteTool()]
 
 
-def get_vulnerability_tools(
-    db_session: sqlalchemy.orm.session.Session,
-    component_descriptor_lookup: cnudie.retrieve.ComponentDescriptorLookupById,
-    component_version_lookup: cnudie.retrieve.VersionLookupByComponent,
-    github_api_lookup,
-    invalid_semver_ok: bool=False,
-) -> list[langchain.tools.BaseTool]:
 
-    class GetVulnerabilityFindingsForComponentsSchema(langchain_core.pydantic_v1.BaseModel):
+def get_vulnerability_tools(
+        db_session: sqlalchemy.orm.session.Session,
+        component_descriptor_lookup: cnudie.retrieve.ComponentDescriptorLookupById,
+        component_version_lookup: cnudie.retrieve.VersionLookupByComponent,
+        github_api_lookup,
+        landscape_components: list[gci.componentmodel.Component],
+        invalid_semver_ok: bool = False,
+) -> list[langchain.tools.BaseTool]:
+    class GetVulnerabilityFindingsForComponentsResourcesSchema(langchain_core.pydantic_v1.BaseModel):
         component_identities: list[str] = langchain_core.pydantic_v1.Field(
             description='''
                 Component Identities: A component identity is always a concatenation of a
@@ -345,41 +541,52 @@ def get_vulnerability_tools(
         )
 
     class GetVulnerabilityFindingsForComponents(langchain.tools.BaseTool):
-        name = 'get_vulnerability_findings_for_component'
+        name = 'get_vulnerability_findings_for_components_resources'
         description = (
             'A tool that returns the findings of a specific type or types for specific component'
         )
         args_schema: typing.Type[
-            langchain_core.pydantic_v1.BaseModel
-        ] | None = GetVulnerabilityFindingsForComponentsSchema
+                         langchain_core.pydantic_v1.BaseModel
+                     ] | None = GetVulnerabilityFindingsForComponentsResourcesSchema
 
         def _run(
-            self,
-            component_identities: list[str]
+                self,
+                component_identities: list[str]
         ):
-            component_ids = [
+
+            given_component_ids = [
                 gci.componentmodel.ComponentIdentity(
                     name=component_identitie.split(':')[0],
-                    version=component_identitie.split(':')[1],
-                )
-                if component_identitie.split(':')[1] != 'greatest'
-                else gci.componentmodel.ComponentIdentity(
-                    name=component_identitie.split(':')[0],
-                    version=components.greatest_version_if_none(
+                    version= components.greatest_version_if_none(
                         component_name=component_identitie.split(':')[0],
                         version=None,
                         version_lookup=component_version_lookup,
                         version_filter=features.VersionFilter.RELEASES_ONLY,
                         invalid_semver_ok=invalid_semver_ok,
-                    )
+                    ) if component_identitie.split(':')[1] == 'greatest' else component_identitie.split(':')[1]
                 )
                 for component_identitie
                 in component_identities
             ]
 
+            landscape_component_ids = [
+                gci.componentmodel.ComponentIdentity(
+                    name=component.name,
+                    version=component.version,
+                )
+                for component 
+                in landscape_components
+            ]
+
+            for component_id in given_component_ids:
+                if component_id not in landscape_component_ids:
+                    return f'''
+                    There is no component with the component id {component_id.name}:{component_id.version} in the landscape. 
+                    '''
+
             findings_query = db_session.query(deliverydb.model.ArtefactMetaData).filter(
                 sqlalchemy.or_(deliverydb.util.ArtefactMetadataQueries.component_queries(
-                    components=component_ids
+                    components=given_component_ids,
                 )),
                 deliverydb.model.ArtefactMetaData.type.__eq__(dso.model.Datatype.VULNERABILITY),
             )
@@ -389,10 +596,6 @@ def get_vulnerability_tools(
                 deliverydb.util.db_artefact_metadata_to_dso(raw)
                 for raw in findings_raw
             ]
-
-            pprint.pprint([{
-                f'{finding.artefact.component_name}:{finding.artefact.component_version}': finding.data
-            } for finding in findings])
 
             return [{
                 f'{finding.artefact.component_name}:{finding.artefact.component_version}': finding.data
@@ -423,16 +626,15 @@ def get_vulnerability_tools(
             ' which have a security Vulnerability.'
         )
         args_schema: typing.Type[
-            langchain_core.pydantic_v1.BaseModel
-        ] | None = GetTransitiveReferencesWithVulnerabilitySchema
+                         langchain_core.pydantic_v1.BaseModel
+                     ] | None = GetTransitiveReferencesWithVulnerabilitySchema
 
         def _run(
-            self,
-            root_component_name: str,
-            root_component_version: str,
-            severities: list[typing.Literal['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']]
+                self,
+                root_component_name: str,
+                root_component_version: str,
+                severities: list[typing.Literal['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']]
         ):
-
             if root_component_version == 'greatest':
                 root_component_version = components.greatest_version_if_none(
                     component_name=root_component_name,
@@ -478,7 +680,6 @@ def get_vulnerability_tools(
 
             return findings
 
-
     class GetAllComponentsWithCVESchema(langchain_core.pydantic_v1.BaseModel):
         cve: str = langchain_core.pydantic_v1.Field(description='CVE of interest.')
         pagination_page: int = langchain_core.pydantic_v1.Field(
@@ -493,15 +694,14 @@ def get_vulnerability_tools(
             ' For the sake of performance, it paginates the results in the size of 100 entries.'
         )
         args_schema: typing.Type[
-            langchain_core.pydantic_v1.BaseModel
-        ] | None = GetAllComponentsWithCVESchema
+                         langchain_core.pydantic_v1.BaseModel
+                     ] | None = GetAllComponentsWithCVESchema
 
         def _run(
-            self,
-            cve: str,
-            pagination_page,
+                self,
+                cve: str,
+                pagination_page,
         ):
-
             cve_pattern = r'^CVE-\d{4}-\d{1,}$'
             valid_pattern = bool(re.match(cve_pattern, cve))
             if not valid_pattern:
@@ -556,13 +756,12 @@ def get_vulnerability_tools(
 
 
 def get_malware_tools(
-    db_session: sqlalchemy.orm.session.Session,
-    component_descriptor_lookup: cnudie.retrieve.ComponentDescriptorLookupById,
-    component_version_lookup: cnudie.retrieve.VersionLookupByComponent,
-    github_api_lookup,
-    invalid_semver_ok: bool=False,
+        db_session: sqlalchemy.orm.session.Session,
+        component_descriptor_lookup: cnudie.retrieve.ComponentDescriptorLookupById,
+        component_version_lookup: cnudie.retrieve.VersionLookupByComponent,
+        github_api_lookup,
+        invalid_semver_ok: bool = False,
 ) -> list[langchain.tools.BaseTool]:
-
     class GetMalwareFindingsForComponentSchema(langchain_core.pydantic_v1.BaseModel):
         component_name: str = langchain_core.pydantic_v1.Field(description="Component Name")
         component_version: str = langchain_core.pydantic_v1.Field(
@@ -575,13 +774,13 @@ def get_malware_tools(
             'A tool that returns the findings of a specific type or types for specific component'
         )
         args_schema: typing.Type[
-            langchain_core.pydantic_v1.BaseModel
-        ] | None = GetMalwareFindingsForComponentSchema
+                         langchain_core.pydantic_v1.BaseModel
+                     ] | None = GetMalwareFindingsForComponentSchema
 
         def _run(
-            self,
-            component_name: str,
-            component_version: str,
+                self,
+                component_name: str,
+                component_version: str,
         ):
             if component_version == 'greatest':
                 component_version = components.greatest_version_if_none(
@@ -620,13 +819,12 @@ def get_malware_tools(
 
 
 def get_license_tools(
-    db_session: sqlalchemy.orm.session.Session,
-    component_descriptor_lookup: cnudie.retrieve.ComponentDescriptorLookupById,
-    component_version_lookup: cnudie.retrieve.VersionLookupByComponent,
-    github_api_lookup,
-    invalid_semver_ok: bool=False,
+        db_session: sqlalchemy.orm.session.Session,
+        component_descriptor_lookup: cnudie.retrieve.ComponentDescriptorLookupById,
+        component_version_lookup: cnudie.retrieve.VersionLookupByComponent,
+        github_api_lookup,
+        invalid_semver_ok: bool = False,
 ) -> list[langchain.tools.BaseTool]:
-
     class GetLicenseFindingsForComponentSchema(langchain_core.pydantic_v1.BaseModel):
         component_name: str = langchain_core.pydantic_v1.Field(description="Component Name")
         component_version: str = langchain_core.pydantic_v1.Field(
@@ -639,13 +837,13 @@ def get_license_tools(
             'A tool that returns the findings of a specific type or types for specific component'
         )
         args_schema: typing.Type[
-            langchain_core.pydantic_v1.BaseModel
-        ] | None = GetLicenseFindingsForComponentSchema
+                         langchain_core.pydantic_v1.BaseModel
+                     ] | None = GetLicenseFindingsForComponentSchema
 
         def _run(
-            self,
-            component_name: str,
-            component_version: str,
+                self,
+                component_name: str,
+                component_version: str,
         ):
             if component_version == 'greatest':
                 component_version = components.greatest_version_if_none(
@@ -688,11 +886,43 @@ def get_license_tools(
 
 
 def get_end_of_life_tools(
-    db_session: sqlalchemy.orm.session.Session,
-    component_descriptor_lookup: cnudie.retrieve.ComponentDescriptorLookupById,
-    component_version_lookup: cnudie.retrieve.VersionLookupByComponent,
-    github_api_lookup,
-    invalid_semver_ok: bool=False,
+        db_session: sqlalchemy.orm.session.Session,
+        component_descriptor_lookup: cnudie.retrieve.ComponentDescriptorLookupById,
+        component_version_lookup: cnudie.retrieve.VersionLookupByComponent,
+        github_api_lookup,
+        eol_client: eol.EolClient,
+        landscape_components: list[gci.componentmodel.Component],
+        invalid_semver_ok: bool = False,
 ) -> list[langchain.tools.BaseTool]:
-    print("")
-    return []
+
+    class GetEndOfLifeInformationForOSSchema(langchain_core.pydantic_v1.BaseModel):
+        os_id: str = langchain_core.pydantic_v1.Field(
+            description=f'Operating System ID, can have one of the following values: {eol_client.all_products}'
+        )
+        os_version_id: typing.Optional[str] = langchain_core.pydantic_v1.Field(
+            description='Optional Parameter, Operating System Version ID.'
+        )
+
+    class GetEndOfLifeInformationForOS(langchain.tools.BaseTool):
+        name = 'get_end_of_life_information_for_os'
+        description = (
+            'A tool that returns the end of life information for a specific Operating System.'
+        )
+        args_schema: typing.Type[
+                         langchain_core.pydantic_v1.BaseModel
+                     ] | None = GetEndOfLifeInformationForOSSchema
+
+        def _run(
+                self,
+                os_id: str,
+                os_version_id: str,
+        ):
+            if os_id not in eol_client.all_products():
+                return f'OS ID: {os_id} is not in the list of supported OS ID\'s for the eol API.'
+
+            if os_version_id is None or os_version_id == '':
+                return eol_client.cycles(os_id)
+            else:
+                return eol_client.cycle(os_id, os_version_id)
+
+    return [GetEndOfLifeInformationForOS()]
