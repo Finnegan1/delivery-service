@@ -366,14 +366,7 @@ class AiEndpoint:
       pipeline_manager.add_pipeline('package', PackagePypeline(landscape_components, req.context.db_session, pipeline_manager))
       pipeline_manager.add_pipeline('resource', ResourcePypeline(landscape_components, req.context.db_session))
 
-      pipeline = pipeline_manager.decide_which_pipeline(question)
-      
-      result = pipeline.run(question)
-      
-      merged_result = combine_lists(result)
-      
-      print('merged')
-      pprint.pprint(merged_result)
+      merged_result = combine_lists(pipeline_manager.decide_which_pipeline(question).run(question))
       
       if merged_result is None:
         return []
