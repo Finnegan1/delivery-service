@@ -3,6 +3,7 @@ import datetime
 import json
 import os
 import pprint
+import re
 import typing
 import typing_extensions
 
@@ -14,16 +15,19 @@ import langgraph.prebuilt.tool_node
 import langgraph.utils
 import langchain
 import langchain.tools
+import langchain_core.example_selectors
 import langchain_core.messages
 import langchain_core.messages.tool
 import langchain_core.messages.ai
 import langchain_core.messages.utils
 import langchain_core.output_parsers
 import langchain_core.prompts
+import langchain_core.prompts.few_shot
 import langchain_core.pydantic_v1
 import langchain_core.runnables
 import langchain_core.runnables.config
 import langchain_core.tools
+import langchain_chroma
 import langchain_openai
 import sqlalchemy.orm.session
 
@@ -95,14 +99,85 @@ class PlanningAgent:
         ).bind(
             response_format={"type": "json_object"}
         )
+        
+        examples = [
+            {
+                'question': 'Which versions of debian are used within this landscape?',
+                'answer': '''{
+                    "next_step": "Executing the plan step by step.",
+                    "current_plan": {
+                        "steps": [
+                            {
+                                "description": "Retrieve all packages used in the landscape to find out which versions of Debian are used.",
+                                "tools_usage": [
+                                    "functions.get_resources_by_os"
+                                ]
+                            },
+                            {
+                                "description": "",
+                                "tools_usage": [
+                                    "functions.get_resources_by_os"
+                                ]
+                            }
+                        ]
+                    }
+                }'''.replace('{', '{{').replace('}', '}}'),
+            },
+            {
+                'question': 'Which resources and components use the package openssh? Please output a table with the following fields: Component Name | Component Version | Artefact Name | Artefact Version | OpenSSH Versions',
+                'answer': json.dumps({
+                    "next_step": "Executing the plan step by step.",
+                    "current_plan": {
+                        "steps": [
+                            {
+                                "description": "Retrieve all resources that use the package openssh.",
+                                "tools_usage": [
+                                    "functions.get_resources_by_package"
+                                ]
+                            },
+                            {
+                                "description": "For each resource retrieved, get the components that use these resources.",
+                                "tools_usage": [
+                                    "functions.get_components_by_resource"
+                                ]
+                            },
+                        ]
+                    }
+                }).replace('{', '{{').replace('}', '}}'),
+            },
+        ]
+        
+        example_selector = langchain_core.example_selectors.SemanticSimilarityExampleSelector.from_examples(
+            # This is the list of examples available to select from.
+            examples,
+            # This is the embedding class used to produce embeddings which are used to measure semantic similarity.
+            langchain_openai.AzureOpenAIEmbeddings(
+                azure_endpoint=os.getenv('AZURE_OPENAI_EMBEDDING_ENDPOINT'),
+                model=os.getenv('AZURE_OPENAI_EMBEDDING_MODEL'),
+                api_key=os.getenv('AZURE_OPENAI_EMBEDDING_API_KEY'),
+            ),
+            # This is the VectorStore class that is used to store the embeddings and do a similarity search over.
+            langchain_chroma.Chroma,
+            # This is the number of examples to produce.
+            k=1,
+        )
+        example_prompt_template = langchain_core.prompts.PromptTemplate(
+            input_variables=["question", "answer"], template="Question: {question}\n{answer}"
+        )
+        self.few_shot_examples = langchain_core.prompts.few_shot.FewShotPromptTemplate(
+            example_selector=example_selector,
+            example_prompt=example_prompt_template,
+            suffix="Question: {input}",
+            input_variables=["input"],
+        )
 
         chat_template = [
             (
                 'system',
-                '<your_role>'
+                '<your_role>\n'
                 'You are an agent with the task to is to create a precise and brief plan to help another'
-                ' agent answer the users question about the Landscape.'
-                '</your_role>'
+                ' agent answer the users question about the Landscape.\n'
+                '</your_role>\n'
                 ' \n'
                 '<genetal_knowledge> \n'
                 '# OCM Knowledge\n'
@@ -150,12 +225,16 @@ class PlanningAgent:
                 '</landscape_information>\n'
                 '\n'
                 '<general_information>\n'
-                '   <current_date>{current_date}</current_date>\n'
+                '   <current_date>\n{current_date}\n</current_date>\n'
                 '</general_information>\n'
                 '\n'
                 '<return_format_instructions_for_output>\n'
-                '   <JSON>{format_instructions}</JSON>\n'
+                '   <JSON>\n{format_instructions}\n</JSON>\n'
                 '</return_format_instructions_for_output>\n'
+                '\n'
+                '<examples>\n'
+                '{examples}\n'
+                '</examples>\n'
             ),
             (
                 'placeholder',
@@ -175,7 +254,7 @@ class PlanningAgent:
             root_component_name=root_component_identity.name,
             root_component_version=root_component_identity.version,
             current_date=datetime.datetime.now().strftime("%Y-%m-%d"),
-            format_instructions=self.json_parser.get_format_instructions()
+            format_instructions=self.json_parser.get_format_instructions(),
         )
 
         planning_chain = (
@@ -190,10 +269,13 @@ class PlanningAgent:
         self,
         state: State
     ) -> State:
+        
+        print(self.few_shot_examples.format(input=state['question']))
         plan: Plan = Plan(
             **self.runnable.invoke({
                 'question': state['question'],
-                'old_chat': state['old_chat']
+                'old_chat': state['old_chat'],
+                'examples': self.few_shot_examples.format(input=state['question']),
             })
         )
 

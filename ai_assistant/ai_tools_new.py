@@ -126,12 +126,12 @@ class Parameters:
         )
     class package_version_optional(langchain_core.pydantic_v1.BaseModel):
         package_version: typing.Optional[str] = langchain_core.pydantic_v1.Field(
-            description='Version of a specifi Package.',
+            description='Version of a specific Package.',
             default=None,
         )
-    class package_plattform_optional(langchain_core.pydantic_v1.BaseModel):
-        package_plattform: typing.Optional[str] = langchain_core.pydantic_v1.Field(
-            description='Plattform for a specific Package. e.g. "amd64"',
+    class package_platform_optional(langchain_core.pydantic_v1.BaseModel):
+        package_platform: typing.Optional[str] = langchain_core.pydantic_v1.Field(
+            description='Platform for a specific Package. e.g. "amd64"',
             default=None,
         )
     
@@ -353,7 +353,6 @@ class AiTools:
                     in component.resources
                 ]
             ]
-            print(components_with_resource)
 
             if resource_version:
                 components_with_resource = [
@@ -402,7 +401,7 @@ class AiTools:
 
         tools.append(langchain.tools.StructuredTool.from_function(
             name='get_versions_of_component',
-            description='Querries all the versions of a specific component, which appear the current Landscape.',
+            description='Queries all the versions of a specific component, which appear the current Landscape.',
             args_schema=VersionsOfComponent,
             func=versions_of_component,
         ))
@@ -430,7 +429,7 @@ class AiTools:
             )
         tools.append(langchain.tools.StructuredTool.from_function(
             name='get_all_resource_ids_of_landscape',
-            description='Querries the ID of all used Resources.',
+            description='Queries the ID of all used Resources.',
             args_schema=langchain_core.pydantic_v1.BaseModel,
             func=resources_in_landscape,
         ))
@@ -481,7 +480,7 @@ class AiTools:
 
         tools.append(langchain.tools.StructuredTool.from_function(
             name='get_resources_by_os',
-            description='Return all used Resources, filtered for a specific os.',
+            description='Queries all Resources, which are based on a specific os.',
             args_schema=ResourcesByOs,
             func=resources_by_os,
         ))
@@ -492,7 +491,7 @@ class AiTools:
 
         class ResourcesByPackage(
             Parameters.package_name,
-            Parameters.package_plattform_optional,
+            Parameters.package_platform_optional,
             Parameters.package_version_optional,
             langchain_core.pydantic_v1.BaseModel
         ):
@@ -501,7 +500,7 @@ class AiTools:
         def resources_by_package(
             package_name: str,
             package_version: typing.Optional[str] = None,
-            package_plattform: typing.Optional[str] = None,
+            package_platform: typing.Optional[str] = None,
         ):
             component_ids = tuple(
                 component.identity()
@@ -685,7 +684,7 @@ class AiTools:
 
         tools.append(langchain.tools.StructuredTool.from_function(
             name='get_resources_of_landscape_with_vulnerability',
-            description='Querries and return alls resources which have a vulnerability of one of the specified severities and discovery date.',
+            description='Queries and return all resources which have a vulnerability of one of the specified severities and discovery date.',
             args_schema=ResourcesWithFinding,
             func=resources_with_finding,
         ))
@@ -742,10 +741,9 @@ class AiTools:
 
         tools.append(langchain.tools.StructuredTool.from_function(
             name='get_resources_of_landscape_with_vulnerability',
-            description='Querries and return alls components which have a vulnerability of one of the specified severities and discovery date.',
+            description='Queries and return all components which have a vulnerability of one of the specified severities and discovery date.',
             args_schema=ComponentsWithFinding,
             func=components_with_finding,
         ))
 
         return tools
-

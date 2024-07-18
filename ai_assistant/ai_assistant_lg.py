@@ -1,6 +1,5 @@
 import json
 import os
-import pprint
 
 import falcon
 import langchain_core
@@ -33,7 +32,6 @@ class AiAssistantChatLG:
         eol_client: eol.EolClient,
         invalid_semver_ok: bool=False,
     ):
-
         self._component_descriptor_lookup = component_descriptor_lookup
         self._component_version_lookup = component_version_lookup
         self.github_api_lookup = github_api_lookup
@@ -104,8 +102,6 @@ class AiAssistantChatLG:
                 config=runnable_config,
                 stream_mode='values',
             ):
-                pprint.pprint(state)
-                print('\n')
                 yield f'''data: {
                     json.dumps({
                         'nextStep': state.get('next_step'),
