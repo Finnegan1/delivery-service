@@ -17,9 +17,7 @@ import ccc.oci
 import ci.log
 import ci.util
 
-import ai.new
-import ai_assistant.ai_assistant_lg
-import ai.ai_endpoint
+import ai.ai
 import artefacts
 import compliance_tests
 import compliance_summary as cs
@@ -507,20 +505,10 @@ def init_app(
             github_api_lookup=github_api_lookup,
         ),
     )
-    app.add_route(
-        '/ai-assistant/chat',
-        ai_assistant.ai_assistant_lg.AiAssistantChatLG(
-            component_descriptor_lookup=component_descriptor_lookup,
-            component_version_lookup=version_lookup,
-            github_api_lookup=github_api_lookup,
-            invalid_semver_ok=invalid_semver_ok,
-            eol_client=eol_client,
-        )
-    )
     
     app.add_route(
         '/ai',
-        ai.new.AiEndpoint(
+        ai.ai.AiEndpoint(
             component_descriptor_lookup=component_descriptor_lookup,
             component_version_lookup=version_lookup,
             github_api_lookup=github_api_lookup,
