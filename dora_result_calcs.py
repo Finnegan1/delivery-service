@@ -82,19 +82,19 @@ def calc_deployments_per(deployment_objects: list[ReturnDeploymentObject]):
     for deployment in deployment_objects:
 
         # First day of the month
-        first_day_month = deployment.deploymentDate.replace(day=1)
-        month_key = first_day_month.strftime("%Y-%m-%d")
+        first_day_month = deployment.deploymentDate.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_key = first_day_month.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         deployments_per_month[month_key] += 1
 
         # First day of the week
         first_day_week = deployment.deploymentDate - datetime.timedelta(
             days=deployment.deploymentDate.weekday()
         )
-        week_key = first_day_week.strftime("%Y-%m-%d")
+        week_key = first_day_week.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         deployments_per_week[week_key] += 1
 
         # Exact day
-        day_key = deployment.deploymentDate.strftime("%Y-%m-%d")
+        day_key = deployment.deploymentDate.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         deployments_per_day[day_key] += 1
 
     return {
@@ -112,17 +112,17 @@ def calc_lead_time_per(deployment_objects: list[ReturnDeploymentObject]):
     for deployment in deployment_objects:
 
         # First day of the month
-        first_day_month = deployment.deploymentDate.replace(day=1)
-        month_key = first_day_month.strftime("%Y-%m-%d")
+        first_day_month = deployment.deploymentDate.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_key = first_day_month.isoformat()
 
         # First day of the week
         first_day_week = deployment.deploymentDate - datetime.timedelta(
             days=deployment.deploymentDate.weekday()
         )
-        week_key = first_day_week.strftime("%Y-%m-%d")
+        week_key = first_day_week.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
 
         # Exact day
-        day_key = deployment.deploymentDate.strftime("%Y-%m-%d")
+        day_key = deployment.deploymentDate.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
 
         for commit in deployment.commits:
             lead_times_per_month[month_key].append(commit.leadTime.total_seconds())

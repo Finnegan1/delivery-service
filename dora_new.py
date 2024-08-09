@@ -120,10 +120,8 @@ def filter_component_versions_newer_than_date(
         )
         creation_date = components.get_creation_date(descriptor.component)
 
-        if date.tzinfo is not None:
-            date = date.astimezone(datetime.timezone.utc).replace(tzinfo=None)
-        if creation_date.tzinfo is not None:
-            creation_date = creation_date.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+        date = date.astimezone(datetime.timezone.utc)
+        creation_date = creation_date.astimezone(datetime.timezone.utc)
 
         if creation_date > date:
             component_versions.append(version)
@@ -328,7 +326,7 @@ def commits_for_component_change(
     returns commits between passed-on commits. results are read from github-api and cached.
     passed-on commits must exist in repository referenced by passed-in github_repo.
     '''
-    commits = tuple(github_repo.compare_commits(
+    commits: tuple[github3.github.repo.commit.ShortCommit] = tuple(github_repo.compare_commits(
         left_commit,
         right_commit,
     ).commits())
@@ -346,7 +344,7 @@ def calculate_lead_time_based_on_deployment_frequency(
     target_version_changes_with_ref_change: list[ComponentVersionChange],
 ) -> list[ReturnDeploymentObject]:
 
-    commits_per_version_change: list[tuple[ComponentVersionChange, tuple[github3.github.repo.commit.ShortCommit]]] = []
+    deployment_objects: list[ReturnDeploymentObject] = []
 
     _github_api = functools.cache(github_api_lookup)
 
@@ -422,8 +420,45 @@ def calculate_lead_time_based_on_deployment_frequency(
             github_repo=github_repo,
         )
 
-        commits_per_version_change.append(
-            (target_version_change_with_ref_change, commits),
+        for commit in commits:
+            commit_objects: list[ReturnCommitObject] = []
+            deployment_date = components.get_creation_date(
+                component_descriptor_lookup(
+                    cm.ComponentIdentity(
+                        name=cnudie.util.to_component_name(target_component_name),
+                        version=target_version_change_with_ref_change.target_component_versions_newer,
+                    ),
+                ).component
+            )
+            for commit in commits:
+                if (
+                    (
+                            commit_date := components.ensure_utc(dateutil.parser.isoparse(commit.commit.author['date']))
+                    ) > (
+                        datetime.datetime.now(datetime.timezone.utc) -
+                        datetime.timedelta(days=time_span_days)
+                    )
+                ):
+                    pprint.pprint(commit)
+                    commit_objects.append(
+                        ReturnCommitObject(
+                            commitDate=commit_date,
+                            commitSha=commit.sha,
+                            deploymentDate=deployment_date,
+                            leadTime=(deployment_date - commit_date),
+                            url=commit.html_url,
+                        ),
+                    )
+
+        deployment_objects.append(
+            ReturnDeploymentObject(
+                targetComponentVersionNew=target_version_change_with_ref_change.target_component_versions_newer,
+                targetComponentVersionOld=target_version_change_with_ref_change.target_component_versions_older,
+                deployedComponentVersion=target_version_change_with_ref_change.referenced_component_version_newer_release,
+                oldComponentVersion=target_version_change_with_ref_change.referenced_component_version_older_release,
+                deploymentDate=deployment_date,
+                commits=commit_objects
+            )
         )
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as tpe:
@@ -432,50 +467,6 @@ def calculate_lead_time_based_on_deployment_frequency(
             for target_version_change_with_ref_change in target_version_changes_with_ref_change
         }
         concurrent.futures.wait(futures)
-
-    deployment_objects: list[ReturnDeploymentObject] = []
-
-    for version_change, commits in commits_per_version_change:
-        commit_objects: list[ReturnCommitObject] = []
-        deployment_date = components.get_creation_date(
-            component_descriptor_lookup(
-                cm.ComponentIdentity(
-                    name=cnudie.util.to_component_name(target_component_name),
-                    version=version_change.target_component_versions_newer,
-                ),
-            ).component
-        )
-        for commit in commits:
-            if (
-                (
-                        commit_date := dateutil.parser.isoparse(commit.commit.author['date'])
-                ) > (
-                    datetime.datetime.now(datetime.timezone.utc) -
-                    datetime.timedelta(days=time_span_days)
-                )
-            ):
-                commit_objects.append(
-                    ReturnCommitObject(
-                        commitDate=commit_date,
-                        commitSha=commit.sha,
-                        deploymentDate=deployment_date,
-                        leadTime=(deployment_date - commit_date),
-                        url="",
-                    ),
-                )
-
-        deployment_objects.append(
-            ReturnDeploymentObject(
-                targetComponentVersionNew=version_change.target_component_versions_newer,
-                targetComponentVersionOld=version_change.target_component_versions_older,
-                deployedComponentVersion=version_change.referenced_component_version_newer_release,
-                oldComponentVersion=version_change.referenced_component_version_older_release,
-                deploymentDate=deployment_date,
-                commits=commit_objects
-            )
-        )
-
-    print(deployment_objects)
 
     return deployment_objects
 
@@ -501,12 +492,10 @@ class DoraMetricsDeploymentFrequency:
             name='time_span_days',
             default=90,
         )
-        filter_component_names: list[str] = req.get_param_as_list(
-            name='filter_component_names',
-            default=[],
+        filter_component_name: str = req.get_param(
+            name='filter_component_name',
+            required=True,
         )
-
-        filter_component_name = filter_component_names[0]
 
         components.check_if_component_exists(
             component_name=target_component_name,
@@ -514,12 +503,11 @@ class DoraMetricsDeploymentFrequency:
             raise_http_error=True,
         )
 
-        for component_name in filter_component_names:
-            components.check_if_component_exists(
-                component_name=component_name,
-                version_lookup=self._component_version_lookup,
-                raise_http_error=True,
-            )
+        components.check_if_component_exists(
+            component_name=filter_component_name,
+            version_lookup=self._component_version_lookup,
+            raise_http_error=True,
+        )
 
         all_target_component_versions = all_versions_sorted(
             component=target_component_name,
@@ -602,10 +590,8 @@ class DoraMetricsDeploymentFrequency:
                         )
                     ).component
                 )
-                changes_per_month[creation_date.strftime('%y-%m')] += 1
+                changes_per_month[creation_date.isoformat()] += 1
                 target_version_changes_with_ref_change.append(target_version_change)
-
-        deployment_frequency = statistics.mean(changes_per_month.values())
 
         deployment_objects = calculate_lead_time_based_on_deployment_frequency(
             component_descriptor_lookup=self._component_descriptor_lookup,

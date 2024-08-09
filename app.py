@@ -22,6 +22,7 @@ import compliance_summary as cs
 import components
 import ctx_util
 import dora
+import dora_new
 import eol
 import features
 import lookups
@@ -526,7 +527,7 @@ def init_app(
     )
     app.add_route(
         '/dora/dora-metrics',
-        dora.DoraMetrics(
+        dora_new.DoraMetricsDeploymentFrequency(
             component_descriptor_lookup=component_descriptor_lookup,
             component_version_lookup=version_lookup,
             github_api_lookup=github_api_lookup,

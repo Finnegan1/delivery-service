@@ -502,12 +502,12 @@ def dora_changes_monthly(
     for component_dependency_change_with_commits in component_dependency_changes_with_commits:
         for commit in component_dependency_change_with_commits.commits:
             if (
-                    (
-                            commit_date := dateutil.parser.isoparse(commit.commit.author['date'])
-                    ) > (
+                (
+                        commit_date := dateutil.parser.isoparse(commit.commit.author['date'])
+                ) > (
                     datetime.datetime.now(datetime.timezone.utc) -
                     datetime.timedelta(days=time_span_days)
-            )
+                )
             ):
                 commit_sha: str = commit.sha
                 key = (commit_date.year, commit_date.month)
