@@ -1,0 +1,187 @@
+{
+    "targetComponentName": "example.com/kubernetes-live/landscape-live-garden",
+    "timePeriod": 30,
+    "componentName": "example.com/gardener/gardener",
+    "medianDeploymentFrequency": 2,
+    "medianLeadTime": 723251.7531109999,
+    "deploymentsPerMonth": {
+        "2024-07-01T00:00:00+00:00": 3,
+        "2024-08-01T00:00:00+00:00": 1
+    },
+    "deploymentsPerWeek": {
+        "2024-07-15T00:00:00+00:00": 1,
+        "2024-07-22T00:00:00+00:00": 2,
+        "2024-08-05T00:00:00+00:00": 1
+    },
+    "deploymentsPerDay": {
+        "2024-07-18T00:00:00+00:00": 1,
+        "2024-07-25T00:00:00+00:00": 1,
+        "2024-07-24T00:00:00+00:00": 1,
+        "2024-08-09T00:00:00+00:00": 1
+    },
+    "leadTimePerMonth": {
+        "2024-07-01T00:00:00+00:00": 254471.655414,
+        "2024-08-01T00:00:00+00:00": 1192031.850808
+    },
+    "leadTimePerWeek": {
+        "2024-07-15T00:00:00+00:00": 254471.655414,
+        "2024-07-22T00:00:00+00:00": 460088.935102,
+        "2024-08-05T00:00:00+00:00": 1192031.850808
+    },
+    "leadTimePerDay": {
+        "2024-07-18T00:00:00+00:00": 254471.655414,
+        "2024-07-25T00:00:00+00:00": 238050.9169,
+        "2024-07-24T00:00:00+00:00": 682126.953304,
+        "2024-08-09T00:00:00+00:00": 1192031.850808
+    },
+    "deployments": [
+        {
+            "targetComponentVersionNew": "0.342.0",
+            "targetComponentVersionOld": "0.341.0",
+            "deployedComponentVersion": "v1.98.4",
+            "oldComponentVersion": "v1.98.2",
+            "deploymentDate": "2024-07-18T07:03:38.655414+00:00",
+            "commits": [
+                {
+                    "commitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "commitDate": "2024-07-15T08:21:39+00:00",
+                    "deploymentDate": "2024-07-18T07:03:38.655414+00:00",
+                    "leadTime": 254519.655414,
+                    "url": "https://example.com/gardener/gardener/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                },
+                {
+                    "commitSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "commitDate": "2024-07-15T08:22:27+00:00",
+                    "deploymentDate": "2024-07-18T07:03:38.655414+00:00",
+                    "leadTime": 254471.655414,
+                    "url": "https://example.com/gardener/gardener/commit/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                },
+                {
+                    "commitSha": "cccccccccccccccccccccccccccccccccccccccc",
+                    "commitDate": "2024-07-15T13:21:11+00:00",
+                    "deploymentDate": "2024-07-18T07:03:38.655414+00:00",
+                    "leadTime": 236547.655414,
+                    "url": "https://example.com/gardener/gardener/commit/cccccccccccccccccccccccccccccccccccccccc"
+                }
+            ]
+        },
+        {
+            "targetComponentVersionNew": "0.346.0",
+            "targetComponentVersionOld": "0.345.0",
+            "deployedComponentVersion": "v1.99.2",
+            "oldComponentVersion": "v1.99.1",
+            "deploymentDate": "2024-07-25T09:01:54.916900+00:00",
+            "commits": [
+                {
+                    "commitSha": "dddddddddddddddddddddddddddddddddddddddd",
+                    "commitDate": "2024-07-16T10:34:50+00:00",
+                    "deploymentDate": "2024-07-25T09:01:54.916900+00:00",
+                    "leadTime": 772024.9169,
+                    "url": "https://example.com/gardener/gardener/commit/dddddddddddddddddddddddddddddddddddddddd"
+                },
+                {
+                    "commitSha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                    "commitDate": "2024-07-16T10:35:38+00:00",
+                    "deploymentDate": "2024-07-25T09:01:54.916900+00:00",
+                    "leadTime": 771976.9169,
+                    "url": "https://example.com/gardener/gardener/commit/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                },
+                {
+                    "commitSha": "ffffffffffffffffffffffffffffffffffffffff",
+                    "commitDate": "2024-07-22T14:54:24+00:00",
+                    "deploymentDate": "2024-07-25T09:01:54.916900+00:00",
+                    "leadTime": 238050.9169,
+                    "url": "https://example.com/gardener/gardener/commit/ffffffffffffffffffffffffffffffffffffffff"
+                },
+                {
+                    "commitSha": "gggggggggggggggggggggggggggggggggggggggg",
+                    "commitDate": "2024-07-23T04:59:23+00:00",
+                    "deploymentDate": "2024-07-25T09:01:54.916900+00:00",
+                    "leadTime": 187351.9169,
+                    "url": "https://example.com/gardener/gardener/commit/gggggggggggggggggggggggggggggggggggggggg"
+                },
+                {
+                    "commitSha": "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh",
+                    "commitDate": "2024-07-24T11:08:14+00:00",
+                    "deploymentDate": "2024-07-25T09:01:54.916900+00:00",
+                    "leadTime": 78820.9169,
+                    "url": "https://example.com/gardener/gardener/commit/hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh"
+                }
+            ]
+        },
+        {
+            "targetComponentVersionNew": "0.344.0",
+            "targetComponentVersionOld": "0.343.0",
+            "deployedComponentVersion": "v1.99.1",
+            "oldComponentVersion": "v1.98.4",
+            "deploymentDate": "2024-07-24T07:33:16.953304+00:00",
+            "commits": [
+                {
+                    "commitSha": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+                    "commitDate": "2024-07-16T10:04:30+00:00",
+                    "deploymentDate": "2024-07-24T07:33:16.953304+00:00",
+                    "leadTime": 682126.953304,
+                    "url": "https://example.com/gardener/gardener/commit/iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii"
+                }
+            ]
+        },
+        {
+            "targetComponentVersionNew": "0.353.0",
+            "targetComponentVersionOld": "0.352.0",
+            "deployedComponentVersion": "v1.100.1",
+            "oldComponentVersion": "v1.100.0",
+            "deploymentDate": "2024-08-09T12:25:21.850808+00:00",
+            "commits": [
+                {
+                    "commitSha": "jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj",
+                    "commitDate": "2024-07-25T17:39:04+00:00",
+                    "deploymentDate": "2024-08-09T12:25:21.850808+00:00",
+                    "leadTime": 1277177.850808,
+                    "url": "https://example.com/gardener/gardener/commit/jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj"
+                },
+                {
+                    "commitSha": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+                    "commitDate": "2024-07-25T17:40:20+00:00",
+                    "deploymentDate": "2024-08-09T12:25:21.850808+00:00",
+                    "leadTime": 1277101.850808,
+                    "url": "https://example.com/gardener/gardener/commit/kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+                },
+                {
+                    "commitSha": "llllllllllllllllllllllllllllllllllllllll",
+                    "commitDate": "2024-07-26T11:56:10+00:00",
+                    "deploymentDate": "2024-08-09T12:25:21.850808+00:00",
+                    "leadTime": 1211351.850808,
+                    "url": "https://example.com/gardener/gardener/commit/llllllllllllllllllllllllllllllllllllllll"
+                },
+                {
+                    "commitSha": "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+                    "commitDate": "2024-07-26T17:18:10+00:00",
+                    "deploymentDate": "2024-08-09T12:25:21.850808+00:00",
+                    "leadTime": 1192031.850808,
+                    "url": "https://example.com/gardener/gardener/commit/mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm"
+                },
+                {
+                    "commitSha": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+                    "commitDate": "2024-07-27T10:03:10+00:00",
+                    "deploymentDate": "2024-08-09T12:25:21.850808+00:00",
+                    "leadTime": 1131731.850808,
+                    "url": "https://example.com/gardener/gardener/commit/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+                },
+                {
+                    "commitSha": "oooooooooooooooooooooooooooooooooooooooo",
+                    "commitDate": "2024-08-01T15:48:00+00:00",
+                    "deploymentDate": "2024-08-09T12:25:21.850808+00:00",
+                    "leadTime": 679041.850808,
+                    "url": "https://example.com/gardener/gardener/commit/oooooooooooooooooooooooooooooooooooooooo"
+                },
+                {
+                    "commitSha": "pppppppppppppppppppppppppppppppppppppppp",
+                    "commitDate": "2024-08-08T07:21:37+00:00",
+                    "deploymentDate": "2024-08-09T12:25:21.850808+00:00",
+                    "leadTime": 104624.850808,
+                    "url": "https://example.com/gardener/gardener/commit/pppppppppppppppppppppppppppppppppppppppp"
+                }
+            ]
+        }
+    ]
+}

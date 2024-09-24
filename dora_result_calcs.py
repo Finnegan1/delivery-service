@@ -136,5 +136,5 @@ def calc_lead_time_per(deployment_objects: list[ReturnDeploymentObject]):
     return {
         'medianLeadTimePerMonth': median_lead_time_per_month,
         'medianLeadTimePerWeek': median_lead_time_per_week,
-        'medianLeadTimePerDay': median_lead_time_per_day
+        'medianLeadTimePerDay': median_lead_time_per_day,
     }
